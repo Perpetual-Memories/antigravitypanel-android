@@ -1,0 +1,29 @@
+# 换行符。**gradlew 必须是 LF** —— 它在第一行用 `#!/usr/bin/env sh` 找解释器，
+# 带 CRLF 时 Linux/macOS 会报 `/usr/bin/env: 'sh\r': No such file or directory`，
+# 而这个又是 Windows 开发的默认产物（core.autocrlf=true 会把一切转成 CRLF）。
+gradlew text eol=lf
+
+# gradlew.bat 反过来，Windows 批处理需要 CRLF
+*.bat text eol=crlf
+
+# Kotlin / Java / 配置文件：仓库里统一存 LF，工作副本按平台转换
+*.kt text eol=lf
+*.kts text eol=lf
+*.java text eol=lf
+*.toml text eol=lf
+*.pro text eol=lf
+*.properties text eol=lf
+*.gradle text eol=lf
+*.xml text eol=lf
+*.md text eol=lf
+*.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# 二进制：别让 Git 尝试换行转换
+*.png binary
+*.jpg binary
+*.webp binary
+*.jar binary
+*.jks binary
+*.keystore binary
+*.db binary

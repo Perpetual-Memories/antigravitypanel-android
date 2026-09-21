@@ -1,0 +1,25 @@
+*.iml
+.gradle
+.kotlin
+/.idea
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# 构建产物。**不带前导斜杠** —— `/build` 只匹配仓库根目录，
+# app/build 和 shared/build 会被当成源码提交进去（实测 1200+ 个中间文件）。
+# 之前就是这么漏的。
+build/
+
+# 发布签名凭据。jks 与 keystore.properties 都不进仓库；
+# 缺了它们 assembleRelease 只会退化成未签名包，不会编译失败（见 app/build.gradle.kts）。
+keystore.properties
+*.jks
+*.keystore
+
+# APK / AAB 产物：只在 GitHub Release 上分发，不入库
+*.apk
+*.aab
+*.ap_

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    Android 12+ 的启动画面底色取 `windowSplashScreenBackground`，没有显式配置时
+    退回主题的 `windowBackground` —— `Theme.Material.NoActionBar` 那份是灰的
+    （浅色 #FAFAFA / 深色 #303030），所以冷启动会先闪一片灰。
+
+    这里显式给白底，和 HyperIsland 一致。minSdk 已经是 33，v31 这一档一定命中。
+
+    注意只改启动画面这一项，不要顺手改 `windowBackground`：那个是 Activity 的底色，
+    白色的话深色模式下 Compose 画出第一帧之前会闪一道白。
+    -->
+    <style name="Theme.AntigravityPanel" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <!-- 启动画面是白底，系统栏图标得用深色才看得见。
+             进到 Compose 之后由 enableEdgeToEdge 按当前主题接管，这里只管启动那一瞬。 -->
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

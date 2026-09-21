@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 全透明系统栏交给 Compose 内的 enableEdgeToEdge 处理 -->
+    <style name="Theme.AntigravityPanel" parent="android:Theme.Material.NoActionBar" />
+</resources>
