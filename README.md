@@ -41,7 +41,7 @@ Release 页：**<https://github.com/Perpetual-Memories/antigravitypanel-android/
 
 | 项目 | 说明 |
 | :-- | :--- |
-| [NZM](https://github.com/HaMan412/NZM) — 哈曼 @Haman412 | 一切的起点。|
+| [NZM](https://github.com/HaMan412/NZM) — 哈曼 @Haman412 | 一切的起点|
 | [Miuix](https://github.com/compose-miuix-ui/miuix/) — @YuKongA | UI 组件库 |
 | [HyperIsland](https://github.com/1812z/HyperIsland) — 芥子 @1812z | 参考甚至直接使用了其极为优秀的 UI 实现 |
 
@@ -54,7 +54,15 @@ Release 页：**<https://github.com/Perpetual-Memories/antigravitypanel-android/
 [MIT](LICENSE)
 
 游戏素材（名称、图标、地图与武器数据等）版权均归《逆战：未来》运营方所有；
-本应用免费、非商业，不含广告与推广，仅读取官方已开放的战绩接口，不涉及图像识别、
+本应用免费、非商业，不含广告与推广，不涉及图像识别、
 内存注入或任何游戏数据修改。
-PC 端「反重力数据面板」是另一个独立程序，请前往B站关注@哈曼曼曼曼曼https://space.bilibili.com/322071443了解更多有关PC端反重力数据面板信息。
+PC 端「反重力数据面板」是另一个独立程序，请前往B站关注 [@哈曼曼曼曼曼](https://space.bilibili.com/322071443)了解更多有关PC端反重力数据面板信息。
 本仓库只包含 Android 端。
+
+---
+
+## 支持哈曼
+
+如果PC端反重力数据面板对您有帮助，可以在条件允许的情况下请哈曼喝杯咖啡
+
+![微信赞赏](public/images/donate-wechat.png)
