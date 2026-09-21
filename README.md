@@ -1,6 +1,6 @@
 # 反重力数据面板 Android 版
 
-> PC 端《逆战：未来》战绩查询工具 [反重力数据面板](https://github.com/1812z/HyperIsland) 的 Android 移植
+> PC 端《逆战：未来》战绩查询工具「反重力数据面板」的 Android 移植
 > · 非官方 · MIT 开源 · 仅通过 GitHub Release 分发
 
 ![平台](https://img.shields.io/badge/platform-Android%2013%2B-3DDC84)
@@ -54,7 +54,9 @@ App 内的「如何获取 Cookie」引导写的就是这两条。
 - **Cookie 只存在本机**，文件是 `EncryptedSharedPreferences`（密钥 AES256-GCM、
   值 AES256-GCM、主密钥 AES256_GCM），绝对不会上传到除腾讯官方接口以外的任何地方。
 - 代码里没有埋点、没有统计 SDK、没有第三方上报。
-- 这意味着：**本 repo 也不含任何你的凭据**。推给 GitHub 的只有源码。
+- 所以这个仓库里**不存在任何用户凭据**，推上来的只有源码本身。
+
+有问题或想聊玩法：QQ 群 `1004721478`（App 的「讨论」里有复制按钮）。
 
 ---
 
@@ -146,7 +148,7 @@ keyPassword=...
 > 注意 keytool 会把 `-alias` 强制转成小写，所以 keyAlias 一律填小写。
 
 相关的还有一条：本机 JDK 路径（`org.gradle.java.home`）**故意没有**写进 `gradle.properties` ——
-那是机器相关的配置，写进去别人 clone 下来就在构建失败。请放进用户级
+那是机器相关的配置，写进去别人 clone 下来就会构建失败。请放进用户级
 `~/.gradle/gradle.properties`。
 
 Release 只对 `androidComponents` 的 release 变体裁 ABI 而不是用 `splits` —— `splits`
@@ -167,14 +169,23 @@ cookie 解析容错与 JSON 导入的三种历史格式。
 
 ## 致谢
 
-- 接口与统计口径参考 [HaMan412/NZM](https://github.com/HaMan412/NZM)（MIT），
-  并保留其 MIT 声明里的赞赏请求；HaMan412 列入 Contributor。
-- UI 立足 [Miuix](https://github.com/compose-miuix-ui/miuix) 官方示例，
-  交互与版式参考 [1812z/HyperIsland](https://github.com/1812z/HyperIsland)。
+开发过程中参考或应用了以下开源项目的接口、设计与实现，在此一并致谢：
+
+| 项目 | 说明 |
+| :-- | :--- |
+| [NZM](https://github.com/HaMan412/NZM) — 哈曼 @Haman412 | 一切的起点。接口与统计口径的参照，已保留其 MIT 声明里的赞赏请求 |
+| [Miuix](https://github.com/compose-miuix-ui/miuix/) — @YuKongA | UI 组件库，也是 `AboutScreen` 上半部分版式的来源 |
+| [HyperIsland](https://github.com/1812z/HyperIsland) — 芥子 @1812z | 参考甚至直接使用了其极为优秀的 UI 实现 |
+
+液态玻璃底栏同样来自 Miuix example，源头是 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Apache-2.0）。
 
 ---
 
 ## License
 
-[MIT](LICENSE)。反向工程的 PC 端程序本身不是本项目的产物，本项目只是在移动端
-重新实现了数据查询与统计这一部分。
+[MIT](LICENSE)，版权归 Perpetual-Memories 所有。
+
+游戏素材（名称、图标、地图与武器数据等）版权均归《逆战：未来》运营方所有；
+本应用免费、非商业，不含广告与推广，仅读取官方已开放的战绩接口，不涉及图像识别、
+内存注入或任何游戏数据修改。PC 端「反重力数据面板」是另一个独立程序，
+本仓库只包含 Android 端。
