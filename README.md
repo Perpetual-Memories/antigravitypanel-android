@@ -65,4 +65,4 @@ PC 端「反重力数据面板」是另一个独立程序，请前往B站关注 
 
 如果PC端反重力数据面板对您有帮助，可以在条件允许的情况下请哈曼喝杯咖啡
 
-![微信赞赏](public/images/donate-wechat.png)
+![微信赞赏](donate-wechat.png)
