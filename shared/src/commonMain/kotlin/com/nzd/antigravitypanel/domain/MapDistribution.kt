@@ -173,7 +173,47 @@ fun buildOfficialMapStats(
         .toList()
 }
 /**
- * 猎场的赛季归属，新的在前 —— 官方前端的展示顺序就是从 S3 一路排到 S0。
+ * 合并官方口径和本地口径：**官方优先，逐图退到本地**。
+ *
+ * 必要条件：[official] 是 [buildOfficialMapStats] 的产物，它会替配置里的每一张图都生成
+ * 条目（没统计的下发的图填 0）。所以**不能**只看"official 这条列表空不空"来二选一 ——
+ * 官方一到位就把本地全丢掉，这正是 S4 那两张新图显示成 0 的原因：
+ * `center.user.map.stats` 当时还没把它们纳进去，但同样的对局本地库里查得到
+ * （历史战绩页能看到具体对局就是证据）。
+ *
+ * 规则：
+ * - [officialIds] 里的图：服务端真的给了数，用官方的（口径是「通关」）。
+ * - 其余图：官方那个 0 是"没下发行"，不是"打了 0 场"，本地有就用本地的
+ *   （[MapStatEntry.official] 变 false，卡片标签跟着变成「总场次」）。
+ * - 本地有、但配置里压根没有的图追加到末尾 —— 配置比客户端旧的时候会有这种图。
+ *
+ * @param officialIds `center.user.map.stats` 响应里出现过的 `map_id`。
+ */
+fun mergeMapStats(
+    official: List<MapStatEntry>,
+    local: List<MapStatEntry>,
+    officialIds: Set<Int>,
+): List<MapStatEntry> {
+    val localById = local.associateBy { it.mapId }
+    val merged = official.map { entry ->
+        if (entry.mapId in officialIds) entry else localById[entry.mapId] ?: entry
+    }
+    val knownIds = official.mapTo(mutableSetOf()) { it.mapId }
+    val extras = local.filter { it.mapId !in knownIds }
+    return if (extras.isEmpty()) merged else merged + extras
+}
+
+/**
+ * 猎场的赛季归属，新的在前 —— 官方前端的展示顺序就是从 S4 一路排到 S0。
+ *
+ * 次序直接抄前端的 `Hs.僵尸猎场`（地图分布页就是按它在 `Hs` 里的下标排序的）：
+ *
+ * ```js
+ * 僵尸猎场: [朔望计划, 禁魔岛, 销金之城, 丛林魅影, 樱之渊, 樱之城,
+ *            昆仑神宫, 精绝古城, 黑暗复活节, 大都会, 冰点源起]
+ * ```
+ *
+ * 注意 S2 是**樱之渊在前**（19 然后 13）—— 和「樱之城」听起来像主打图无关，官方就这么排。
  *
  * 按 **mapId** 分组而不是按地图名：名字会随 `center.config.list` 下发的内容变
  * （时空追猎那几张在配置里叫「根除异变」，我们的兜底表里叫「根除变异」），
@@ -183,8 +223,10 @@ fun buildOfficialMapStats(
  * 里恒为空串（`HarFixtures` 里的 10 条样例全是 `""`），拿不到就别编。
  */
 private val HUNT_SEASONS: List<Pair<String, List<Int>>> = listOf(
+    // S4·朔望计划（2026-09-22）：朔望计划 + 禁魔岛
+    "S4 赛季" to listOf(20, 22),
     "S3 赛季" to listOf(18, 15),
-    "S2 赛季" to listOf(13, 19),
+    "S2 赛季" to listOf(19, 13),
     "S1 赛季" to listOf(16, 17),
     "S0 赛季" to listOf(12, 14, 21),
 )
@@ -206,7 +248,7 @@ private val HUNT_SEASONS: List<Pair<String, List<Int>>> = listOf(
  * 摆上去就是一张永远 0 场的卡。
  */
 private val DISPLAY_MAP_IDS: Map<GameMode, List<Int>> = mapOf(
-    GameMode.TOWER to listOf(310, 309, 304, 306, 300),
+    GameMode.TOWER to listOf(311, 310, 309, 304, 306, 300),
     GameMode.TIME_HUNT to listOf(323, 322, 321),
 )
 

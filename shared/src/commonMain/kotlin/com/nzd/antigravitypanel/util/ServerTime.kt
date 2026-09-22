@@ -76,6 +76,22 @@ fun startOfServerDay(epochSec: Long): Long {
     return days * SECONDS_PER_DAY - SERVER_UTC_OFFSET_SECONDS
 }
 
+/**
+ * 服务端所在时区的日期键，形如 `20260921`。
+ *
+ * 用来判断"今天"这种按天去重的事（比如自动签到一天只试一次）。必须按北京时间切，
+ * 不能拿 UTC 日期或者设备本地时区——改了系统时区就会差一天。
+ */
+fun serverDateKey(epochSec: Long): String {
+    val local = epochSec + SERVER_UTC_OFFSET_SECONDS
+    val (year, month, day) = civilFromDays(Math.floorDiv(local, SECONDS_PER_DAY))
+    return buildString {
+        append(year)
+        append(month.toString().padStart(2, '0'))
+        append(day.toString().padStart(2, '0'))
+    }
+}
+
 /** Howard Hinnant 的 days_from_civil：把年月日转成 1970-01-01 起的天数。 */
 internal fun daysFromCivil(year: Int, month: Int, day: Int): Long {
     val y = (if (month <= 2) year - 1 else year).toLong()

@@ -26,17 +26,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nzd.antigravitypanel.data.build.BuildPlan
 import com.nzd.antigravitypanel.data.repo.OverviewMode
 import com.nzd.antigravitypanel.data.repo.RecentFive
 import com.nzd.antigravitypanel.data.repo.countOf
 import com.nzd.antigravitypanel.data.repo.formatPlaytime
 import com.nzd.antigravitypanel.domain.ActivityEvent
 import com.nzd.antigravitypanel.domain.soonestActivities
+import com.nzd.antigravitypanel.ui.build.BuildPlanCard
 import com.nzd.antigravitypanel.ui.component.ActivityRow
+import com.nzd.antigravitypanel.ui.component.InfoGrid
 import com.nzd.antigravitypanel.ui.component.InfoText
 import com.nzd.antigravitypanel.ui.component.StatCard
 import com.nzd.antigravitypanel.ui.component.statusGlyphPainter
 import com.nzd.antigravitypanel.ui.format.formatCompact
+import com.nzd.antigravitypanel.ui.signin.QqGiftViewModel
+import com.nzd.antigravitypanel.ui.signin.SignInCard
+import com.nzd.antigravitypanel.ui.signin.XinyueViewModel
+import com.nzd.antigravitypanel.ui.signin.SignInViewModel
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -70,12 +77,21 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 @Composable
 fun OverviewScreen(
     viewModel: OverviewViewModel,
+    signInViewModel: SignInViewModel,
+    qqGiftViewModel: QqGiftViewModel,
+    xinyueViewModel: XinyueViewModel,
+    onOpenSignIn: () -> Unit,
     onOpenAccountDetail: () -> Unit,
     onOpenAllActivities: () -> Unit,
+    onOpenBuildPlan: () -> Unit,
+    plan: BuildPlan,
     modifier: Modifier = Modifier,
     insets: PaddingValues = PaddingValues(0.dp),
 ) {
     val state by viewModel.state.collectAsState()
+    val signInState by signInViewModel.state.collectAsState()
+    val qqState by qqGiftViewModel.state.collectAsState()
+    val xinyueState by xinyueViewModel.state.collectAsState()
     var selectedEvent by remember { mutableStateOf<ActivityEvent?>(null) }
 
     val recent = state.recent
@@ -98,10 +114,24 @@ fun OverviewScreen(
                 mode = state.mode,
                 modeCount = state.stats.countOf(state.mode),
                 playtimeSec = state.stats.playtime,
-                loading = state.loading,
                 verifying = state.cookieVerifying,
                 onOpenAccountDetail = onOpenAccountDetail,
                 onModeChange = viewModel::setMode,
+            )
+        }
+
+        item(key = "signin") {
+            SignInCard(
+                status = signInState.status,
+                available = signInState.available,
+                loading = signInState.loading,
+                qqStatus = qqState.status,
+                qqAvailable = qqState.available,
+                qqBound = qqState.bound,
+                xinyueStatus = xinyueState.status,
+                xinyueAvailable = xinyueState.available,
+                xinyueBound = xinyueState.bound,
+                onClick = onOpenSignIn,
             )
         }
 
@@ -143,6 +173,15 @@ fun OverviewScreen(
                     }
                 }
             }
+        }
+
+        // Build 计划夹在近五场和活动日历之间：前两块是"打过了什么"，
+        // 这一块是"接下来要刷什么"，放最后会变成永远滚不到的那一条
+        item(key = "build") {
+            BuildPlanCard(
+                plan = plan,
+                onClick = onOpenBuildPlan,
+            )
         }
 
         item(key = "calendar") {
@@ -239,36 +278,6 @@ private fun recentMetrics(recent: RecentFive): List<Pair<String, String>> = buil
     recent.winCount?.let { add("胜场" to "$it / ${recent.sampleCount}") }
 }
 
-/**
- * 两列指标网格。四行竖排在手机上会顶出一屏，两列刚好。
- *
- * 行距只加在**行与行之间**：最后一行再垫一份 bottom，卡片底部就会多出一整块空白
- * （原来每格自己还带 16dp，等于末行下面堆了 28dp），看着像"多出来一块白色区域"。
- */
-@Composable
-private fun InfoGrid(items: List<Pair<String, String>>) {
-    val rows = items.chunked(2)
-    Column {
-        rows.forEachIndexed { index, row ->
-            Row(
-                modifier = if (index != rows.lastIndex) {
-                    Modifier.padding(bottom = 12.dp)
-                } else {
-                    Modifier
-                },
-            ) {
-                for ((title, value) in row) {
-                    InfoText(
-                        title = title,
-                        content = value,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-    }
-}
-
 /** 第三条活动下面那条「更多」。 */
 @Composable
 private fun MoreActivitiesRow(
@@ -319,7 +328,6 @@ private fun StatusGrid(
     mode: OverviewMode,
     modeCount: Int,
     playtimeSec: Long,
-    loading: Boolean,
     verifying: Boolean,
     onOpenAccountDetail: () -> Unit,
     onModeChange: (OverviewMode) -> Unit,
@@ -351,7 +359,6 @@ private fun StatusGrid(
     ) {
         CookieStatusCard(
             status = status,
-            loading = loading,
             verifying = verifying,
             modifier = Modifier
                 .weight(1f)
@@ -408,7 +415,6 @@ private fun StatusGrid(
 @Composable
 private fun CookieStatusCard(
     status: CookieStatus,
-    loading: Boolean,
     verifying: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -437,7 +443,11 @@ private fun CookieStatusCard(
             }
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Text(
-                    text = if (loading && status == CookieStatus.OK) "同步中…" else status.label,
+                    // 只显示状态本身，**不把 loading 翻译成「同步中」**：
+                    // 刷新期间卡片会被那层「同步中」遮罩盖住（见 [verifying]），
+                    // 底下再改一次文案等于同一件事说两遍，而且遮罩是半透明的——
+                    // 「已识别」会透出来一半，看着像两个字叠在一起。
+                    text = status.label,
                     // 「已导入json」六个字在半屏宽的卡里 24sp 会顶出去，长文案降一档
                     fontSize = if (status.label.length >= 6) 22.sp else 26.sp,
                     fontWeight = FontWeight.SemiBold,

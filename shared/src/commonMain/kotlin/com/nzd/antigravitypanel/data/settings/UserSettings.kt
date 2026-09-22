@@ -29,6 +29,12 @@ class UserSettings(
         MutableStateFlow(DEFAULT_PREDICTIVE_BACK_TRANSLATION)
     val predictiveBackTranslation: StateFlow<Int> = _predictiveBackTranslation.asStateFlow()
 
+    private val _autoClaimQqGift = MutableStateFlow(DEFAULT_AUTO_CLAIM_QQ_GIFT)
+    val autoClaimQqGift: StateFlow<Boolean> = _autoClaimQqGift.asStateFlow()
+
+    private val _autoClaimXinyueGift = MutableStateFlow(DEFAULT_AUTO_CLAIM_XINYUE_GIFT)
+    val autoClaimXinyueGift: StateFlow<Boolean> = _autoClaimXinyueGift.asStateFlow()
+
     suspend fun restore() {
         val saved = store.read(StoreKey.RETENTION_MONTHS)?.toIntOrNull()
         _retentionMonths.value = saved?.takeIf { it in OPTIONS } ?: DEFAULT_RETENTION_MONTHS
@@ -42,6 +48,11 @@ class UserSettings(
         _predictiveBackTranslation.value =
             store.read(StoreKey.PREDICTIVE_BACK_TRANSLATION)?.toIntOrNull()
                 ?.takeIf { it in 0..100 } ?: DEFAULT_PREDICTIVE_BACK_TRANSLATION
+
+        _autoClaimQqGift.value = store.read(StoreKey.QQ_GIFT_AUTO_CLAIM) == "1"
+
+        // 默认开，所以判"关"而不是判"开"：没写过这个键时结果是 true
+        _autoClaimXinyueGift.value = store.read(StoreKey.XINYUE_AUTO_CLAIM) != "0"
     }
 
     suspend fun setRetentionMonths(months: Int) {
@@ -66,6 +77,32 @@ class UserSettings(
         val value = percent.takeIf { it in 0..100 } ?: DEFAULT_PREDICTIVE_BACK_TRANSLATION
         store.write(StoreKey.PREDICTIVE_BACK_TRANSLATION, value.toString())
         _predictiveBackTranslation.value = value
+    }
+
+    /**
+     * 游戏中心周签到礼包的自动领取。默认关（[DEFAULT_AUTO_CLAIM_QQ_GIFT]）。
+     *
+     * 之所以默认关：那个领取接口是**批量**的，会把服务端认为能领的礼包一起领走，
+     * 而且真的会把道具发进游戏账号。它和"只读地查战绩"不是一个性质的操作，
+     * 该由用户主动开。
+     */
+    suspend fun setAutoClaimQqGift(enabled: Boolean) {
+        store.write(StoreKey.QQ_GIFT_AUTO_CLAIM, if (enabled) "1" else "0")
+        _autoClaimQqGift.value = enabled
+    }
+
+    /**
+     * 心悦悦享卡每日礼包的自动领取。默认**开**（[DEFAULT_AUTO_CLAIM_XINYUE_GIFT]）。
+     *
+     * 和游戏中心那个默认关不一样，理由是接口性质不同：
+     * 心悦的 `ReceiveGift` **只领传进去的那一张卡**，就是悦享卡的每日礼包；
+     * 而游戏中心的 `exchange-all-gifts` 是批量的，会把服务端认为能领的礼包一起领掉。
+     * 前者等价于"每天领一次该领的东西"，后者是一次未知的批量发货——
+     * 所以这里默认开，那边默认关。
+     */
+    suspend fun setAutoClaimXinyueGift(enabled: Boolean) {
+        store.write(StoreKey.XINYUE_AUTO_CLAIM, if (enabled) "1" else "0")
+        _autoClaimXinyueGift.value = enabled
     }
 
     companion object {
@@ -96,6 +133,12 @@ class UserSettings(
 
         /** 预测返回默认的最大横移距离（屏幕宽度的百分比）。 */
         const val DEFAULT_PREDICTIVE_BACK_TRANSLATION = 75
+
+        /** 游戏中心自动领取默认**关**，理由见 [setAutoClaimQqGift]。 */
+        const val DEFAULT_AUTO_CLAIM_QQ_GIFT = false
+
+        /** 心悦悦享卡自动领取默认**开**，理由见 [setAutoClaimXinyueGift]。 */
+        const val DEFAULT_AUTO_CLAIM_XINYUE_GIFT = true
 
         fun autoRefreshLabel(minutes: Int): String = when {
             minutes <= ON_OPEN -> "每次打开时刷新"

@@ -23,12 +23,18 @@ fun unwrapIdeResponse(root: JsonElement, method: IdeMethod): JsonElement {
         throw CookieExpiredException(iRet, obj["sMsg"]?.jsonPrimitive?.content)
     }
 
-    val inner = obj["jData"]?.jsonObject?.get("data")?.jsonObject
-        ?: throw ProtocolException("响应缺少 jData.data（method=${method.apiName}）")
+    // 壳的中间那层节点名随活动组变：战绩是 jData.data，福利站是 jData.welfareStationData
+    val key = method.chart.envelopeKey
+    val inner = obj["jData"]?.jsonObject?.get(key)?.jsonObject
+        ?: throw ProtocolException("响应缺少 jData.$key（method=${method.apiName}）")
 
     val code = inner["code"]?.jsonPrimitive?.intOrNull
     if (code != null && code != 0) {
-        throw ApiException(code, inner["msg"]?.jsonPrimitive?.content)
+        // 错误文案的键也随活动组变：战绩是 msg，福利站是 message
+        throw ApiException(
+            code,
+            inner["msg"]?.jsonPrimitive?.content ?: inner["message"]?.jsonPrimitive?.content,
+        )
     }
 
     // 用户未同意数据协议时，iRet 与 code 都是 0，但 data 是 null

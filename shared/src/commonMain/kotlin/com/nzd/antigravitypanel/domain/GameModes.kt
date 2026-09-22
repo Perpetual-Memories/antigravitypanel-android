@@ -6,11 +6,14 @@ import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
  * 模式归属：只认 mapId。
  *
  * 这套 id 分组取自《逆战：未来》官方数据 —— 原版「反重力数据面板」前端里
- * `iMapId -> { name, mode }` 的完整映射表（27 张图），比早期参照 NZM 整理的
- * 那版全：僵尸猎场补了 13/15/18/19，塔防补了 309/310，时空追猎补了 424。
+ * `iMapId -> { name, mode }` 的完整映射表，已同步到 **v1.8.8（S4·朔望计划，2026-09-22）**
+ * 的 30 张图：S4 新增了猎场的 20 朔望计划 / 22 禁魔岛、塔防的 311 银河战舰。
+ * 比早期参照 NZM 整理的那版全（僵尸猎场补了 13/15/18/19，塔防补了 309/310，
+ * 时空追猎补了 424）。
  *
  * 之前缺的这几个 id 正是本地 `nzm_matches.json` 里出现、却会被判成 UNKNOWN 的那些。
  * 哪天官方改了地图 id，改下面这一个表和 [modeOf] 即可。
+ * 同步时直接比前端产物 `assets/index-*.beautified.js` 里的 `Rs` 那一段。
  *
  * [GameMode.MECHA] 不计入统计（NZM 里 `modeName.includes('机甲') || iGameMode === 6`
  * 会被整体排除），但概览的模式切换里要单独展示，所以保留枚举值。
@@ -40,7 +43,10 @@ private val OFFICIAL_MAP_NAMES: Map<Int, String> = mapOf(
     17 to "精绝古城",
     18 to "销金之城",
     19 to "樱之渊",
+    // —— S4·朔望计划（2026-09-22）新增的两张猎场图 ——
+    20 to "朔望计划",
     21 to "冰点源起",
+    22 to "禁魔岛",
     30 to "猎场-新手关",
 
     300 to "空间站",
@@ -49,6 +55,8 @@ private val OFFICIAL_MAP_NAMES: Map<Int, String> = mapOf(
     308 to "塔防-新手关",
     309 to "蔷薇庄园",
     310 to "失落游轮",
+    // S4 新增的塔防图
+    311 to "银河战舰",
 
     321 to "根除变异",
     322 to "夺回资料",
@@ -57,8 +65,8 @@ private val OFFICIAL_MAP_NAMES: Map<Int, String> = mapOf(
     424 to "月海火线",
 )
 
-private val HUNT_MAP_IDS = setOf(12, 13, 14, 15, 16, 17, 18, 19, 21, 30, 112, 114, 115)
-private val TOWER_MAP_IDS = setOf(300, 304, 306, 308, 309, 310)
+private val HUNT_MAP_IDS = setOf(12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 30, 112, 114, 115)
+private val TOWER_MAP_IDS = setOf(300, 304, 306, 308, 309, 310, 311)
 private val TIME_HUNT_MAP_IDS = setOf(321, 322, 323, 324, 424)
 
 /**

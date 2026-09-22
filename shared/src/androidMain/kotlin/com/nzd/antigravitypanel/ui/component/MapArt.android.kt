@@ -29,7 +29,10 @@ actual fun mapArtPainter(mapId: Int): Painter? {
         17 -> R.drawable.map_17
         18 -> R.drawable.map_18
         19 -> R.drawable.map_19
+        // S4·朔望计划新增
+        20 -> R.drawable.map_20
         21 -> R.drawable.map_21
+        22 -> R.drawable.map_22
         30 -> R.drawable.map_30
         112 -> R.drawable.map_112
         114 -> R.drawable.map_114
@@ -42,6 +45,8 @@ actual fun mapArtPainter(mapId: Int): Painter? {
         308 -> R.drawable.map_308
         309 -> R.drawable.map_309
         310 -> R.drawable.map_310
+        // S4 新增的塔防图
+        311 -> R.drawable.map_311
         321 -> R.drawable.map_321
         322 -> R.drawable.map_322
         323 -> R.drawable.map_323

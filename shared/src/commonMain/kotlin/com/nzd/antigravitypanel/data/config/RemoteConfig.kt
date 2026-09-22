@@ -1,5 +1,6 @@
 package com.nzd.antigravitypanel.data.config
 
+import com.nzd.antigravitypanel.data.remote.IdeChart
 import kotlinx.serialization.Serializable
 
 /**
@@ -10,9 +11,28 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class RemoteConfig(
-    val seasonID: Int = 3,
+    /**
+     * 当前赛季号。**每次赛季更新都要跟着改**（S3 = 3、S4 = 4）。
+     *
+     * 只靠它还不够：新赛季刚开的那几天，玩家在当赛季可能一场都没打，
+     * 服务端按 `seasonID` 查会返回**空数组**，于是整页数字变 0。
+     * 官方前端的做法是顺着 [fallbackSeasonIDs] 往回退（它自己写的是 `Us = [4, 3]`），
+     * 退到有数据的那一个赛季为止 —— 见 [com.nzd.antigravitypanel.data.remote.NzApi]。
+     */
+    val seasonID: Int = 4,
+    /** 当前赛季没战绩时依次回退的赛季号，`seasonID` 本身不用重复写进来。 */
+    val fallbackSeasonIDs: List<Int> = listOf(3),
+    /** 战绩那组活动的 iChartId。福利站（签到）是另一组，见 [welfareIChartId]。 */
     val iChartId: String = "430662",
     val sIdeToken: String = "NoOapI",
+    /**
+     * 福利站（签到）那组活动的 iChartId / sIdeToken。
+     *
+     * 2026-09-21 抓小程序签到页拿到的真实值。它和战绩那组是**两套活动**，
+     * 混用会直接被服务端拒掉，所以必须分开下发而不是复用 [iChartId]。
+     */
+    val welfareIChartId: String = "541709",
+    val welfareSIdeToken: String = "VAs3zJ",
     /** Referer 里 `/51/page-frame.html` 的那个 51。 */
     val pageFrameVersion: Int = 51,
     val miniProgramAppId: String = "wx4e8cbe4fb0eca54c",
@@ -32,6 +52,17 @@ data class RemoteConfig(
 ) {
     val referer: String
         get() = "https://servicewechat.com/$miniProgramAppId/$pageFrameVersion/page-frame.html"
+
+    /** 按活动组取 iChartId。表单里的 iChartId 与 iSubChartId 用的是同一个值。 */
+    fun iChartIdOf(chart: IdeChart): String = when (chart) {
+        IdeChart.Main -> iChartId
+        IdeChart.Welfare -> welfareIChartId
+    }
+
+    fun sIdeTokenOf(chart: IdeChart): String = when (chart) {
+        IdeChart.Main -> sIdeToken
+        IdeChart.Welfare -> welfareSIdeToken
+    }
 }
 
 /**
@@ -43,9 +74,12 @@ data class RemoteConfig(
  */
 internal const val BUILTIN_CONFIG_JSON = """
 {
-  "seasonID": 3,
+  "seasonID": 4,
+  "fallbackSeasonIDs": [3],
   "iChartId": "430662",
   "sIdeToken": "NoOapI",
+  "welfareIChartId": "541709",
+  "welfareSIdeToken": "VAs3zJ",
   "pageFrameVersion": 51,
   "miniProgramAppId": "wx4e8cbe4fb0eca54c",
   "userAgent": "Mozilla/5.0 (Linux; Android 16; Pixel 8 Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/146.0.0.0 XWEB/1460249 MMWEBSDK/20260502 MicroMessenger/8.0.72.3085(0x28004845) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 MiniProgramEnv/android",

@@ -111,6 +111,39 @@ fun InfoText(
 }
 
 /**
+ * 两列指标网格。概览的近五场统计、签到页三块的状态数字都用它。
+ *
+ * 行距只加在**行与行之间**：最后一行再垫一份 bottom，卡片底部就会多出一整块空白
+ * （原来每格自己还带 16dp，等于末行下面堆了 28dp），看着像"多出来一块白色区域"。
+ */
+@Composable
+fun InfoGrid(
+    items: List<Pair<String, String>>,
+    modifier: Modifier = Modifier,
+) {
+    val rows = items.chunked(2)
+    Column(modifier = modifier) {
+        rows.forEachIndexed { index, row ->
+            Row(
+                modifier = if (index != rows.lastIndex) {
+                    Modifier.padding(bottom = 12.dp)
+                } else {
+                    Modifier
+                },
+            ) {
+                for ((title, value) in row) {
+                    InfoText(
+                        title = title,
+                        content = value,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * 列表里的条目行：主标题 + 右侧摘要 + 可选尾图标。
  *
  * HyperIsland 的 `SettingsAction` 是 internal，这里按同样视觉重抄一份。

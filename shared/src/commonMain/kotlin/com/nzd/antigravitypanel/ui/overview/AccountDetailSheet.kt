@@ -27,8 +27,14 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.icon.extended.Scan
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -47,6 +53,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * @param onLogout 退出登录。此处**不该关弹层**：清掉凭证后弹层继续留在屏幕上，
  *   OPENID 变空、Cookie 输入框被清空，用户得重新粘一条才能再保存——
  *   这正是官方 PC 端退出后的状态（Account ID 显示「未登录」、Cookie 显示「暂无可用凭证」）。
+ * @param onScanClick 右上角扫码按钮：扫 PC 端给出的二维码来登录。
+ *   放在标题右侧（[OverlayBottomSheet] 的 `endAction`）而不是内容里——
+ *   它是"换一种方式填这个框"，和这个弹层平级，摆进内容区会像是表单的一栏。
  */
 @Composable
 fun AccountDetailSheet(
@@ -56,6 +65,7 @@ fun AccountDetailSheet(
     error: String? = null,
     onSave: (String) -> Unit,
     onLogout: () -> Unit,
+    onScanClick: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val cookieState = rememberTextFieldState()
@@ -84,6 +94,17 @@ fun AccountDetailSheet(
         show = show,
         title = "账号详细信息",
         allowDismiss = !saving,
+        // 扫码登录的入口。登录态和未登录态都给：扫码本来就是"没凭证时最快的上手方式"，
+        // 只在登出状态才显示的话，想换号登录的人反而找不到它
+        endAction = {
+            IconButton(onClick = onScanClick, enabled = !saving) {
+                Icon(
+                    imageVector = MiuixIcons.Scan,
+                    contentDescription = "扫码登录",
+                    tint = MiuixTheme.colorScheme.onSurface,
+                )
+            }
+        },
         onDismissRequest = onDismiss,
     ) {
         Column(
@@ -101,6 +122,26 @@ fun AccountDetailSheet(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !saving,
                 lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+                // 保存做成输入框内的尾图标，照 HyperIsland 的 AI 通知摘要页那两个输入框
+                // （它在输入框里塞的是"显示/隐藏"和"搜索"，同一个套路）。
+                // 不再用下面那条通栏「保存」：输入框和它的操作应该是一体的，
+                // 分开摆会把"填"和"存"拆成两步，还白占一行。
+                trailingIcon = {
+                    IconButton(
+                        onClick = { if (input.isNotBlank()) onSave(input) },
+                        enabled = input.isNotBlank() && !saving,
+                    ) {
+                        if (saving) {
+                            CircularProgressIndicator(progress = null, size = 20.dp, strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = MiuixIcons.Ok,
+                                contentDescription = "保存 Cookie",
+                                tint = MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                },
             )
 
             // ACCOUNT ID 是给用户看的，点一下直接复制到剪贴板：
@@ -137,14 +178,6 @@ fun AccountDetailSheet(
                     color = MiuixTheme.colorScheme.error,
                     fontSize = 13.sp,
                 )
-            }
-
-            Button(
-                enabled = input.isNotBlank() && !saving,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { onSave(input) },
-            ) {
-                Text(if (saving) "正在同步…" else "保存")
             }
 
             // 退出登录放最下面，并且只在真的有凭证时给出——

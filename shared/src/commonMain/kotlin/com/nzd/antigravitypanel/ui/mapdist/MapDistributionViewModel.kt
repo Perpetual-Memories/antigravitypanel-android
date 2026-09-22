@@ -16,6 +16,7 @@ import com.nzd.antigravitypanel.domain.MapStatEntry
 import com.nzd.antigravitypanel.domain.aggregateByMap
 import com.nzd.antigravitypanel.domain.buildOfficialMapStats
 import com.nzd.antigravitypanel.domain.groupMapsBySeason
+import com.nzd.antigravitypanel.domain.mergeMapStats
 import com.nzd.antigravitypanel.domain.serverMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +37,10 @@ import kotlinx.coroutines.launch
  *
  * ## 统计口径
  *
- * **首选 `center.user.map.stats`（官方终身统计），拿不到才退到本地库。**
+ * **首选 `center.user.map.stats`（官方终身统计），它没覆盖到的图才退到本地库。**
+ *
+ * 降级是**逐张图**做的（[mergeMapStats]），不是"整页挑一边"：官方那份里缺失的地图
+ * 会被填成 0，那时候要用本地的场次把它顶上去。
  *
  * 这不是偷懒换数据源，而是原来那条路根本对不上数：本地库存的是"拉得到、且在保留期内"
  * 的**场次**（含没打完和输了的），官方统计给的是**通关**数。实测同一张图：
@@ -104,21 +108,26 @@ class MapDistributionViewModel(
     /** 当前这张表是不是官方口径 —— 用来区分「这张图没打过」和「压根没拿到数据」。 */
     val officialLoaded: StateFlow<Boolean> = officialReady
 
-    /** 当前模式的统计。**官方数据优先**；只有官方这份真的拿不到时才退本地。 */
+    /** 当前模式的统计。**官方数据优先**，但它没覆盖到的图退到本地（见 [mergeMapStats]）。 */
     val entries: StateFlow<List<MapStatEntry>> =
         combine(allMatches, config, _mode, _officialStats, officialReady) { matches, cfg, mode, all, ready ->
-            val stats = if (ready) all[mode] else null
-            if (stats == null) return@combine aggregateByMap(matches, cfg, mode = mode)
-
             val local = aggregateByMap(matches, cfg, mode = mode)
+            val stats = if (ready) all[mode] else null
+            if (stats == null) return@combine local
+
             // 官方口径的 total 是通关数，拿它当分母算通关率永远是 100%，
             // 所以卡片底部那条进度要的是本地的 win / plays
             val official = buildOfficialMapStats(
                 stats, cfg, mode, local.associate { it.mapId to it.winRate },
             )
             // 配置里这个模式一张图都没有时（`buildOfficialMapStats` 给不出条目），
-            // 才退本地 —— 那是"官方这条路的骨架没搭起来"，不是"官方说你 0 场"。
-            if (official.isEmpty()) local else official
+            // 才整份退本地 —— 那是"官方这条路的骨架没搭起来"，不是"官方说你 0 场"。
+            if (official.isEmpty()) return@combine local
+
+            // 逐图兜底：官方说话的图用官方的，官方没下发的图用本地的。
+            // 少了这一步，新赛季刚开、服务端还没把新图纳进统计的那几天，
+            // 这几张图会一直是 0，而同样的对局在本地库里查得到。
+            mergeMapStats(official, local, stats.mapTo(mutableSetOf()) { it.map_id })
         }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** 分好节的卡片列表：猎场按赛季，其余按模式，没打过的地图补 0 场。 */
@@ -148,9 +157,15 @@ class MapDistributionViewModel(
         // 配置是官方统计的必要输入（地图表 + 每个副本对应的难度）。
         // 页面开在配置到位之前的话，第一次请求白跑；这里等配置一到就补一次。
         // 用户先导入 JSON、之后才粘 cookie 的场景走的也是这条路。
+        //
+        // ⚠️ 判空只能看**内容**不能看 map 本身：`_officialStats.value` 是 `Map`，
+        // 初值是 `emptyMap()`，**永远不会是 null** —— 写成 `== null` 的话这段重试
+        // 是死代码（Kotlin 会直接警告 Condition is always 'false'），
+        // 官方统计拉失败一次就再也没人补过。
+        // 所以条件是"还没凑齐三个模式"，缺哪个就再拉一次。
         scope.launch {
             config.collect { cfg ->
-                if (cfg.mapInfo.isNotEmpty() && _officialStats.value == null) {
+                if (cfg.mapInfo.isNotEmpty() && _officialStats.value.size < COUNTABLE_MODES.size) {
                     loadOfficial(force = true)
                 }
             }

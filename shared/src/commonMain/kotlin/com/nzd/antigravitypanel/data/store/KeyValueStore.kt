@@ -72,4 +72,61 @@ object StoreKey {
      * 它和 cookie 共用同一个加密存储只是图省事，不是因为它需要加密。
      */
     const val OVERVIEW_CACHE = "overview_cache"
+
+    /**
+     * 签到看板缓存（`data.signin.SignInCache` 的 JSON）。
+     * 冷启动先把上一次的数字摆回去，避免签到卡先空一拍。
+     */
+    const val SIGNIN_CACHE = "signin_cache"
+
+    /**
+     * 自动签到的去重标记，值形如 `20260921|openid`。
+     * 同一天同一个号只自动试一次，登出时和 [SIGNIN_CACHE] 一起清掉。
+     */
+    const val SIGNIN_AUTO_MARK = "signin_auto_mark"
+
+    /**
+     * QQ（含 TIM）登录 cookie 原文，**和 [COOKIE_RAW] 是两套凭证**。
+     *
+     * 存在同一个加密存储里只是图省事——它同样是账号凭证，必须加密，
+     * 而且比小程序那串更敏感（能直接操作 QQ 侧的业务）。
+     */
+    const val QQ_COOKIE_RAW = "qq_cookie_raw"
+
+    /** 游戏中心周签到的缓存（[com.nzd.antigravitypanel.data.qq.QqGiftCache] 的 JSON）。 */
+    const val QQ_GIFT_CACHE = "qq_gift_cache"
+
+    /** 游戏中心自动领取的去重标记，值形如 `20260921|uin`。 */
+    const val QQ_GIFT_AUTO_MARK = "qq_gift_auto_mark"
+
+    /** 游戏中心「自动领取」开关。1 = 开。 */
+    const val QQ_GIFT_AUTO_CLAIM = "qq_gift_auto_claim"
+
+    /**
+     * 心悦登录凭证原文（`T-OPENID` / `T-ACCESS-TOKEN`）。
+     *
+     * **第三套凭证**，和 [COOKIE_RAW]、[QQ_COOKIE_RAW] 互不相干。
+     * 存在同一个加密存储里同样只是图省事——它能直接操作心悦账号的业务。
+     */
+    const val XINYUE_CREDENTIAL_RAW = "xinyue_credential_raw"
+
+    /** 悦享卡状态的缓存（[com.nzd.antigravitypanel.data.xinyue.XinyueCardCache] 的 JSON）。 */
+    const val XINYUE_CARD_CACHE = "xinyue_card_cache"
+
+    /** 悦享卡自动领取的去重标记，值形如 `20260921|openid`。 */
+    const val XINYUE_AUTO_MARK = "xinyue_auto_mark"
+
+    /**
+     * 悦享卡「自动领取」开关。**只有 "0" 才是关**——默认开，
+     * 见 [com.nzd.antigravitypanel.data.settings.UserSettings.setAutoClaimXinyueGift]。
+     */
+    const val XINYUE_AUTO_CLAIM = "xinyue_auto_claim"
+
+    /**
+     * Build 计划（[com.nzd.antigravitypanel.data.build.BuildPlan] 的 JSON）。
+     *
+     * 玩家自己记的"我要给哪把枪刷哪四个插件"，纯本地、服务端没有这个概念。
+     * 放在这个加密存储里只是图省事——它该是持久的，但并不敏感。
+     */
+    const val BUILD_PLAN = "build_plan"
 }

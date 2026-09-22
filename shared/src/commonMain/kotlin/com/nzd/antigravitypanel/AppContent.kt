@@ -1,11 +1,18 @@
 package com.nzd.antigravitypanel
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
@@ -17,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -34,10 +42,14 @@ import com.nzd.antigravitypanel.data.config.ConfigRepository
 import com.nzd.antigravitypanel.data.config.GameConfigRepository
 import com.nzd.antigravitypanel.data.config.RemoteConfig
 import com.nzd.antigravitypanel.data.credential.CredentialSession
+import com.nzd.antigravitypanel.data.build.BuildPlan
+import com.nzd.antigravitypanel.data.build.BuildPlanStore
 import com.nzd.antigravitypanel.data.credential.NzCookie
 import com.nzd.antigravitypanel.data.db.DatabaseProvider
 import com.nzd.antigravitypanel.data.imports.JsonImportState
 import com.nzd.antigravitypanel.data.imports.JsonMatchImporter
+import com.nzd.antigravitypanel.data.qrlogin.QrLoginPayload
+import com.nzd.antigravitypanel.data.qrlogin.parseQrLoginPayload
 import com.nzd.antigravitypanel.data.repo.MatchRepository
 import com.nzd.antigravitypanel.data.repo.OverviewRepository
 import com.nzd.antigravitypanel.data.settings.MatchMarks
@@ -47,6 +59,7 @@ import com.nzd.antigravitypanel.data.store.createKeyValueStore
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.ui.about.AboutScreen
 import com.nzd.antigravitypanel.ui.activity.ActivityListScreen
+import com.nzd.antigravitypanel.ui.build.BuildPlanScreen
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
@@ -54,6 +67,7 @@ import com.nzd.antigravitypanel.ui.component.LocalBarBlurBackdrop
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackHandler
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackdrop
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayer
+import com.nzd.antigravitypanel.ui.component.BackHandlerCompat
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayerState
 import com.nzd.antigravitypanel.ui.component.rememberPredictiveNavLayerState
 import com.nzd.antigravitypanel.ui.component.requiresBackdropCapture
@@ -73,9 +87,14 @@ import com.nzd.antigravitypanel.ui.overview.AccountDetailSheet
 import com.nzd.antigravitypanel.ui.overview.CookieGuideDialog
 import com.nzd.antigravitypanel.ui.overview.OverviewScreen
 import com.nzd.antigravitypanel.ui.overview.OverviewViewModel
+import com.nzd.antigravitypanel.ui.qrlogin.QrScannerScreen
 import com.nzd.antigravitypanel.ui.settings.SettingsScreen
 import com.nzd.antigravitypanel.ui.settings.SettingsUiState
 import com.nzd.antigravitypanel.ui.settings.ThemeSettingsScreen
+import com.nzd.antigravitypanel.ui.signin.QqGiftViewModel
+import com.nzd.antigravitypanel.ui.signin.XinyueViewModel
+import com.nzd.antigravitypanel.ui.signin.SignInScreen
+import com.nzd.antigravitypanel.ui.signin.SignInViewModel
 import com.nzd.antigravitypanel.ui.theme.ColorMode
 import kotlinx.coroutines.launch
 import kotlinx.serialization.modules.SerializersModule
@@ -84,6 +103,7 @@ import kotlinx.serialization.modules.subclass
 import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.BadgedBox
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -91,6 +111,7 @@ import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -131,11 +152,17 @@ private enum class AppDetail {
     /** 活动日历的全量列表。 */
     ACTIVITY_LIST,
 
+    /** 签到明细。概览那张签到卡点开进来。 */
+    SIGN_IN,
+
     /** 关于页。 */
     ABOUT,
 
     /** 外观 → 主题。照 HyperIsland，主题是二级页而不是一级页里的下拉。 */
     THEME,
+
+    /** Build 计划：新赛季开始后统计"我要给哪把枪刷哪四个插件"。 */
+    BUILD_PLAN,
 }
 
 @Composable
@@ -172,12 +199,29 @@ fun AppContent(
     val mapViewModel = remember {
         MapDistributionViewModel(api, database.matchDao(), configRepository.config)
     }
+    // 签到的冷启动缓存走和概览同一条路：宿主预热存储后同步 peek，
+    // 否则签到卡会先闪一帧「未登录」再跳成真实数字
+    val signInSeed = remember { runCatching { store.peek(SignInViewModel.CACHE_KEY) }.getOrNull() }
+    val signInViewModel = remember { SignInViewModel(api, store, signInSeed) }
+    // Build 计划。同样走"合成阶段同步 peek"：概览那张卡要在第一帧就画出在养的武器，
+    // 放进 LaunchedEffect 的话它会先空一拍，看着像计划丢了
+    val buildSeed = remember { runCatching { store.peek(StoreKey.BUILD_PLAN) }.getOrNull() }
+    val buildPlanStore = remember { BuildPlanStore(store, buildSeed) }
+    // 游戏中心周签到：另一套凭证（QQ 登录 cookie），和小程序的签到互不相干
+    val qqSeed = remember { runCatching { store.peek(QqGiftViewModel.CACHE_KEY) }.getOrNull() }
+    val qqGiftViewModel = remember { QqGiftViewModel(store, cachedSeed = qqSeed) }
+    // 心悦悦享卡：第三套凭证（两个 T-* 请求头），和上面两块都不通用
+    val xinyueSeed = remember { runCatching { store.peek(XinyueViewModel.CACHE_KEY) }.getOrNull() }
+    val xinyueViewModel = remember { XinyueViewModel(store, cachedSeed = xinyueSeed) }
     DisposableEffect(Unit) {
         onDispose {
             homeViewModel.close()
             overviewViewModel.close()
             historyViewModel.close()
             mapViewModel.close()
+            signInViewModel.close()
+            qqGiftViewModel.close()
+            xinyueViewModel.close()
         }
     }
 
@@ -187,9 +231,13 @@ fun AppContent(
         marks.restore()
         importState.restore()
         configRepository.restoreLocal()
+        buildPlanStore.restore()
         // 同步快照没取到时（存储预热失败）的兜底。仍然要排在 restored 变 true 之前：
         // 那一刻下面那个观察 (restored, ready, cookie) 的 LaunchedEffect 才会启动首刷。
         overviewViewModel.restoreCached()
+        signInViewModel.restoreCached()
+        qqGiftViewModel.restore()
+        xinyueViewModel.restore()
         restored = true
         val config = runCatching { ConfigRepository().refresh() }.getOrDefault(RemoteConfig())
         repository.updateConfig(config)
@@ -203,14 +251,27 @@ fun AppContent(
     val colorModeSetting by settings.colorMode.collectAsState()
     val autoRefreshMinutes by settings.autoRefreshMinutes.collectAsState()
     val predictiveBackTranslation by settings.predictiveBackTranslation.collectAsState()
+    val autoClaimQqGift by settings.autoClaimQqGift.collectAsState()
+    val autoClaimXinyueGift by settings.autoClaimXinyueGift.collectAsState()
     val gameConfig by configRepository.config.collectAsState()
     val pinned by marks.pinned.collectAsState()
     val favorite by marks.favorite.collectAsState()
+    val buildPlan by buildPlanStore.plan.collectAsState()
 
     var liquidGlassEnabled by remember { mutableStateOf(true) }
     var guideSaving by remember { mutableStateOf(false) }
     var guideError by remember { mutableStateOf<String?>(null) }
     var accountSheet by remember { mutableStateOf(false) }
+    /**
+     * 全屏扫码页。它是**app 级浮层**，既不进路由也不走二级页图层：
+     * 二级页图层（`AppDetail`）是挂在 MainScreen 里的，压不住同样 app 级的账号详情弹层，
+     * 而扫码页必须盖在它上面全屏展开。
+     */
+    var scannerShown by remember { mutableStateOf(false) }
+    /** 扫码扫到 Cookie，先摆在这儿等用户点头——扫错码直接顶掉当前账号的代价太大。 */
+    var scanPending by remember { mutableStateOf<QrLoginPayload.CookieText?>(null) }
+    /** 扫出来的东西用不了时的提示（不是登录码 / 是暂不支持的地址）。 */
+    var scanMessage by remember { mutableStateOf<String?>(null) }
     /** 每日首胜宝箱的说明弹窗。 */
     var chestDialog by remember { mutableStateOf(false) }
     /** 没有凭证时点状态卡先弹的"怎么拿 Cookie"对话框。 */
@@ -245,8 +306,55 @@ fun AppContent(
         detailShown = false
     }
 
+    /**
+     * 拉一轮全部数据。**冷启动那条 LaunchedEffect 和手动刷新都必须走这里**——
+     * 之前两边各写一份，手动刷新那份少了 `updateCookie` 和游戏配置表，
+     * 于是"点了刷新看着转了圈，地图分布还是旧的、凭证还是上一次的结论"。
+     *
+     * @param autoSign true 顺手签到（冷启动），false 只刷签到看板（手动刷新）。
+     *   手动刷新不该顺便把签到做了——那是"打开 app"那一下的事；但数字要跟着更新，
+     *   否则看着像没刷。
+     */
+    fun refreshAll(active: NzCookie?, autoSign: Boolean = false) {
+        if (active == null) {
+            // 没凭证时也要刷一次概览：导入过 JSON 的话，状态卡要显示「已导入json」
+            overviewViewModel.refresh(null)
+            // 顺带把签到卡收起来，别留着上一个号的签到状态
+            signInViewModel.refresh(null)
+            return
+        }
+        // 先把凭证挂到 api 上。地图分布页的官方统计（`center.user.map.stats`）
+        // 是直接用这个 api 发的，不能依赖"概览先刷过一次"这种隐式先后关系。
+        api.updateCookie(active)
+        // 游戏配置（地图表 / 难度表）只在**有凭证**时才拉得到，而凭证可能是刚填的。
+        // 带空判断是为了不在已经有配置时重复打接口（冷启动缓存命中就不必再拉）。
+        if (configRepository.config.value.difficultyInfo.isEmpty()) {
+            scope.launch { runCatching { configRepository.refresh(active) } }
+        }
+        homeViewModel.refresh(active)
+        overviewViewModel.refresh(active)
+        if (autoSign) signInViewModel.refresh(active) else signInViewModel.refreshBoardOnly(active)
+    }
+
     LaunchedEffect(colorModeSetting) {
         if (colorModeSetting != colorMode) onColorModeChange(colorModeSetting)
+    }
+
+    // 周签到礼包的自动领取。独立于 cookie 那个 effect：它用的是 QQ 凭证，
+    // 和小程序那套没关系，不该被"小程序 cookie 变了"重新触发一遍。
+    // 开关本身也进 key —— 用户刚打开时应该立刻试一次，不用等下次冷启动。
+    // 同一天重复跑不会有副作用：仓库内部按「日期|uin」去重。
+    LaunchedEffect(restored, autoClaimQqGift) {
+        if (!restored) return@LaunchedEffect
+        qqGiftViewModel.refresh(autoClaim = autoClaimQqGift)
+    }
+
+    // 悦享卡的自动领取。同理独立于 cookie 那个 effect：它看的是心悦凭证。
+    // 开关进 key 是为了用户刚打开时立刻试一次，不用等下次冷启动。
+    // 同一天重复跑不会有副作用：仓库内部按「日期|openid」去重。
+    LaunchedEffect(restored, autoClaimXinyueGift) {
+        if (!restored) return@LaunchedEffect
+        xinyueViewModel.refresh(autoClaim = autoClaimXinyueGift)
     }
 
     LaunchedEffect(restored, ready, cookie) {
@@ -254,21 +362,12 @@ fun AppContent(
         // 接一个局部变量：cookie 是委托属性，编译器不做智能转换
         val active = cookie
         if (active != null) {
-            // 先把凭证挂到 api 上。地图分布页的官方统计（`center.user.map.stats`）
-            // 是直接用这个 api 发的，不能依赖"概览先刷过一次"这种隐式先后关系。
-            api.updateCookie(active)
-            // 游戏配置（地图表 / 难度表）只在**有凭证**时才拉得到，而凭证可能是刚填的。
-            // 挂在 cookie 上而不是只在冷启动拉一次：先导入 JSON、之后才登录的用户，
-            // 到这里才第一次有机会拿到难度表 —— 否则要重启 app 才能把「未知」换成真实难度名。
-            // 带空判断是为了不在已经有配置时重复打接口（冷启动缓存命中就不必再拉）。
-            if (configRepository.config.value.difficultyInfo.isEmpty()) {
-                runCatching { configRepository.refresh(active) }
-            }
-            homeViewModel.refresh(active)
-            overviewViewModel.refresh(active)
+            refreshAll(active, autoSign = true)
         } else {
-            // 没凭证时也要刷一次概览：导入过 JSON 的话，状态卡要显示「已导入json」
-            overviewViewModel.refresh(null)
+            refreshAll(null)
+            // 游戏中心那块和小程序的凭证无关，它只看自己有没有存过 QQ cookie。
+            // 但自动领取要不要开，得等设置读完才知道，所以放在下面那个 effect。
+            qqGiftViewModel.refresh(autoClaim = false)
         }
     }
 
@@ -318,11 +417,17 @@ fun AppContent(
                     },
                     onOpenChestDialog = { chestDialog = true },
                     onOpenAllActivities = { openDetail(AppDetail.ACTIVITY_LIST) },
+                    onOpenSignIn = { openDetail(AppDetail.SIGN_IN) },
                     onOpenMatchDetail = ::openMatch,
                     onOpenAbout = { openDetail(AppDetail.ABOUT) },
                     onOpenTheme = { openDetail(AppDetail.THEME) },
+                    onOpenBuildPlan = { openDetail(AppDetail.BUILD_PLAN) },
+                    buildPlan = buildPlan,
                     firstWinCount = overviewState.firstWinCount,
                     overviewViewModel = overviewViewModel,
+                    signInViewModel = signInViewModel,
+                    qqGiftViewModel = qqGiftViewModel,
+                    xinyueViewModel = xinyueViewModel,
                     historyViewModel = historyViewModel,
                     mapViewModel = mapViewModel,
                     gameConfig = gameConfig,
@@ -331,10 +436,11 @@ fun AppContent(
                     cookie = cookie,
                     liquidGlassEnabled = liquidGlassEnabled,
                     predictiveBackTranslation = predictiveBackTranslation,
-                    onRefresh = {
-                        homeViewModel.refresh(cookie)
-                        overviewViewModel.refresh(cookie)
-                    },
+                    // 手动刷新。内容和冷启动那条路径**逐条对齐**（下面每项注释照抄冷启动那边）：
+                    // 之前这里只刷了三个 ViewModel，少了 updateCookie、配置表和 qq/心悦那两块，
+                    // 结果就是"点了刷新但地图分布还是旧名 / 凭证还是上一次的结论"。
+                    // 抽成 [refreshAll] 是为了两处不可能再分叉——各写一份迟早会漏一项。
+                    onRefresh = { refreshAll(cookie) },
                     settings = SettingsUiState(
                         retentionMonths = retentionMonths,
                         autoRefreshMinutes = autoRefreshMinutes,
@@ -382,10 +488,46 @@ fun AppContent(
                                     )
                                 }
 
+                                AppDetail.SIGN_IN -> SignInScreen(
+                                    viewModel = signInViewModel,
+                                    qqViewModel = qqGiftViewModel,
+                                    xinyueViewModel = xinyueViewModel,
+                                    autoClaimQqGift = autoClaimQqGift,
+                                    autoClaimXinyueGift = autoClaimXinyueGift,
+                                    cookie = cookie,
+                                    onBack = ::closeDetail,
+                                    liquidGlassEnabled = liquidGlassEnabled,
+                                    // 两个自动领取开关跟各自的凭证一起放在二级页的弹层里：
+                                    // 开关和凭证是一对，分开放在设置页的话用户得先想起来
+                                    // "哦这功能我配过吗"才知道那个开关管的是什么。
+                                    onAutoClaimQqGiftChange = {
+                                        scope.launch { settings.setAutoClaimQqGift(it) }
+                                    },
+                                    onAutoClaimXinyueGiftChange = {
+                                        scope.launch { settings.setAutoClaimXinyueGift(it) }
+                                    },
+                                )
+
                                 AppDetail.ABOUT -> AboutScreen(
                                     onBack = ::closeDetail,
                                     liquidGlassEnabled = liquidGlassEnabled,
                                     predictiveBackTranslation = predictiveBackTranslation,
+                                )
+
+                                AppDetail.BUILD_PLAN -> BuildPlanScreen(
+                                    plan = buildPlan,
+                                    onBack = ::closeDetail,
+                                    onAddWeapon = { scope.launch { buildPlanStore.addWeapon(it) } },
+                                    onSetPerk = { name, index, perk ->
+                                        scope.launch { buildPlanStore.setPerk(name, index, perk) }
+                                    },
+                                    onToggleObtained = { name, index ->
+                                        scope.launch { buildPlanStore.toggleObtained(name, index) }
+                                    },
+                                    onRemoveWeapon = {
+                                        scope.launch { buildPlanStore.removeWeapon(it) }
+                                    },
+                                    liquidGlassEnabled = liquidGlassEnabled,
                                 )
 
                                 AppDetail.THEME -> ThemeSettingsScreen(
@@ -450,8 +592,11 @@ fun AppContent(
                 guideSaving = false
                 result.onSuccess { saved ->
                     accountSheet = false
-                    homeViewModel.refresh(saved)
-                    overviewViewModel.refresh(saved)
+                    // 和扫码登录、冷启动共用 refreshAll：以前这里只刷 home / overview / signIn
+                    // 三个 ViewModel，漏了 api.updateCookie() 和游戏配置表 —— 前者是
+                    // 「凭证靠时序副作用写进单例」那个坑，地图分布页会拿着上一个账号的凭证请求。
+                    // 刚填的凭证要立刻走一次自动签到，不用等下次冷启动
+                    refreshAll(saved, autoSign = true)
                 }.onFailure { e ->
                     guideError = e.message ?: "保存失败"
                 }
@@ -460,6 +605,8 @@ fun AppContent(
         onLogout = {
             scope.launch {
                 session.clear()
+                // 签到的缓存和「今天已试过」的标记都要跟着清：换一个号登录时不该跳过自动签到
+                signInViewModel.clear()
                 // 弹层**故意不关**：清掉凭证后 OPENID 与 Cookie 两个框都会清空，
                 // 用户得重新粘一条 Cookie 才能保存——和官方 PC 端退出后的状态一致。
                 // 状态卡退回「未输入」/「已导入json」，关掉弹层再点卡会重新走引导。
@@ -467,7 +614,123 @@ fun AppContent(
             }
         },
         onDismiss = { accountSheet = false },
+        onScanClick = {
+            // 先收掉弹层：扫码页是全屏的，底下留一层弹层纯属浪费，
+            // 而且扫完的目的是回到概览看数据，不是回到这张卡
+            accountSheet = false
+            scannerShown = true
+        },
     )
+
+    // 扫码页。盖在 NavDisplay 之后（也就是所有页面和上面那些弹层之上），
+    // 黑底全屏，进出各给一个淡入淡出——它没有背景虚化那套，硬切一下会很突兀。
+    AnimatedVisibility(
+        visible = scannerShown,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        QrScannerScreen(
+            onScanned = { text ->
+                scannerShown = false
+                // 认领扫码内容是 QrLoginPayload 的事，这里只管分派。
+                // PC 端协议以后改成"给地址让手机去 POST 凭证"，改那边的分支就好
+                when (val payload = parseQrLoginPayload(text)) {
+                    is QrLoginPayload.CookieText -> scanPending = payload
+
+                    is QrLoginPayload.Endpoint -> scanMessage =
+                        "这是一个地址（${payload.url}），当前版本还不能用它登录。" +
+                            "先让 PC 端出示 Cookie 二维码，或者在上面手动粘贴 Cookie。"
+
+                    is QrLoginPayload.Unknown -> scanMessage =
+                        "这个二维码不是本应用的登录码，换一张试试。"
+                }
+            },
+            onDismiss = { scannerShown = false },
+        )
+    }
+    // 扫码页开着的时候，返回键归它。不接的话按返回会直接把整个 app 退出去
+    BackHandlerCompat(enabled = scannerShown) { scannerShown = false }
+
+    scanPending?.let { pending ->
+        WindowDialog(
+            show = true,
+            title = "扫码登录",
+            onDismissRequest = { scanPending = null },
+        ) {
+            Column {
+                Text(
+                    text = buildString {
+                        append("已识别到账号")
+                        if (!pending.openid.isNullOrBlank()) append("：${pending.openid}")
+                        append("。确认后本机会改用这个账号，现有凭证会被替换。")
+                    },
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                // 左右两个小按钮，靠右排：换账号是**破坏性**操作（现有凭证会被替掉），
+                // 两个都撑满整行的话，一不留神就容易点到"确认登录"那一整条。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        text = "取消",
+                        onClick = { scanPending = null },
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                        onClick = {
+                            val raw = pending.raw
+                            scanPending = null
+                            scope.launch {
+                                runCatching { session.save(raw) }
+                                    .onSuccess { saved ->
+                                        // 走 refreshAll 而不是挨个刷三个 ViewModel：
+                                        // 它里面还有 api.updateCookie 和游戏配置表，
+                                        // 少了前者，地图分布页会拿着上一个号的凭证去请求
+                                        refreshAll(saved, autoSign = true)
+                                    }
+                                    .onFailure { e ->
+                                        scanMessage =
+                                            "这个二维码里的凭证用不了：${e.message ?: "格式不对"}"
+                                    }
+                            }
+                        },
+                    ) {
+                        Text("确认登录")
+                    }
+                }
+            }
+        }
+    }
+
+    scanMessage?.let { message ->
+        WindowDialog(
+            show = true,
+            title = "扫码结果",
+            onDismissRequest = { scanMessage = null },
+        ) {
+            Column {
+                Text(
+                    text = message,
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Button(
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .fillMaxWidth(),
+                    onClick = { scanMessage = null },
+                ) {
+                    Text("好的")
+                }
+            }
+        }
+    }
 
     importMessage?.let { message ->
         WindowDialog(
@@ -507,15 +770,21 @@ private fun MainScreen(
     onOpenAccountDetail: () -> Unit,
     onOpenChestDialog: () -> Unit,
     onOpenAllActivities: () -> Unit,
+    onOpenSignIn: () -> Unit,
     onOpenMatchDetail: (String) -> Unit,
     onOpenAbout: () -> Unit,
     onOpenTheme: () -> Unit,
+    onOpenBuildPlan: () -> Unit,
+    buildPlan: BuildPlan,
     detailVisible: Boolean,
     detailNavState: PredictiveNavLayerState,
     onDismissDetail: () -> Unit,
     detailContent: @Composable () -> Unit,
     firstWinCount: Int?,
     overviewViewModel: OverviewViewModel,
+    signInViewModel: SignInViewModel,
+    qqGiftViewModel: QqGiftViewModel,
+    xinyueViewModel: XinyueViewModel,
     historyViewModel: HistoryViewModel,
     mapViewModel: MapDistributionViewModel,
     gameConfig: com.nzd.antigravitypanel.data.remote.dto.GameConfigDto,
@@ -662,10 +931,16 @@ private fun MainScreen(
                         when (page) {
                             Tabs.OVERVIEW -> OverviewScreen(
                                 viewModel = overviewViewModel,
+                                signInViewModel = signInViewModel,
+                                qqGiftViewModel = qqGiftViewModel,
+                                xinyueViewModel = xinyueViewModel,
+                                onOpenSignIn = onOpenSignIn,
                                 onOpenAccountDetail = onOpenAccountDetail,
                                 onOpenAllActivities = {
                                     onOpenAllActivities()
                                 },
+                                onOpenBuildPlan = onOpenBuildPlan,
+                                plan = buildPlan,
                                 insets = innerPadding,
                             )
 

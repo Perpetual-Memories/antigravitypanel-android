@@ -133,4 +133,14 @@ internal val REFERENCE_PROJECTS = listOf(
         summary = "参考甚至直接使用了其极为优秀的 UI 实现",
         url = "https://github.com/1812z/HyperIsland",
     ),
+    ReferenceProject(
+        title = "lsfTB_lsfdc233",
+        summary = "参考并使用了其扫码相关UI",
+        url = "https://github.com/lsfdc233/lsfTB",
+    ),
+    ReferenceProject(
+        title = "nzm-wiki_幻想延續@lostlightll",
+        summary = "逆战:未来最好的wiki，本项目使用了其仓库的资源",
+        url = "https://github.com/lostlightll/nzm-wiki",
+    ),
 )

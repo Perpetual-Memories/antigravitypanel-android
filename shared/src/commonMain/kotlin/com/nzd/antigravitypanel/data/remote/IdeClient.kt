@@ -53,14 +53,18 @@ class IdeClient(
             http.submitForm(
                 url = ENDPOINT,
                 formParameters = parameters {
-                    append("iChartId", config.iChartId)
-                    append("iSubChartId", config.iChartId)
-                    append("sIdeToken", config.sIdeToken)
+                    // 活动号按 method 属于哪一组取：战绩和福利站是两套 iChartId
+                    append("iChartId", config.iChartIdOf(method.chart))
+                    append("iSubChartId", config.iChartIdOf(method.chart))
+                    append("sIdeToken", config.sIdeTokenOf(method.chart))
                     append("eas_url", method.page.easUrl)
                     append("method", method.apiName)
-                    append("from_source", "2")
-                    // seasonID 在表单顶层和 param 里各出现一次，两处都要发
-                    append("seasonID", config.seasonID.toString())
+                    // 福利站那组抓包里没有 from_source / seasonID，别多发
+                    if (method.chart.withSourceParams) {
+                        append("from_source", "2")
+                        // seasonID 在表单顶层和 param 里各出现一次，两处都要发
+                        append("seasonID", config.seasonID.toString())
+                    }
                     append("param", param.toString())
                 },
             ) {

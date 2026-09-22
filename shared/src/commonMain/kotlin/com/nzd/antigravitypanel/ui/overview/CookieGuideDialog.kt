@@ -26,7 +26,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  * 让「先去获取」成为一个体面的退出按钮，比留一个"取消"更容易理解。
  *
  * @param onGoGet 点「先去获取」：关掉对话框，用户去抓 cookie，之后再点卡进来。
- * @param onAlreadyHave 点「已有Cookie」：直接进「账号详细信息」填。
+ * @param onAlreadyHave 点「我已知悉」：直接进「账号详细信息」填 / 扫码。
+ *   文案不说「已有Cookie」是因为下面第三条路（扫码）不需要用户手里先有 Cookie，
+ *   说「已有」会把这条路堵死——按钮的意思只是"看完了，下一步"。
  */
 @Composable
 fun CookieGuideDialog(
@@ -51,9 +53,15 @@ fun CookieGuideDialog(
                 detail = "装 Reqable，抓取微信小程序的 HTTPS 流量，" +
                     "在请求头里复制整条 Cookie。",
             )
+            // 扫码这条路**不需要用户手里先有 Cookie**——PC 端把当前账号的凭证编成二维码，
+            // 手机扫一下就完事，比在电脑和手机之间来回粘一长串快得多，所以它是无 root 时的首选。
+            // 这段把 PC 端怎么出码、手机端从哪扫码**两头都说了**：
+            // 只说一头的话用户会卡在"二维码在哪"上，最后还是回去手动抓。
             GuideBranch(
-                title = "手机没有 root",
-                detail = "用电脑版「反重力数据面板」抓取，再把 Cookie 粘到手机。",
+                title = "手机无 root",
+                detail = "推荐使用扫码登录。自PC端反重力数据面板 1.8.9起，" +
+                    "可在系统设置-账号详细信息中查看Cookie二维码，" +
+                    "轻触APP首页Cookie状态卡，在弹出的底部动作面板右上角可找到扫码入口。",
             )
 
             Row(
@@ -72,7 +80,7 @@ fun CookieGuideDialog(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColorsPrimary(),
                 ) {
-                    Text("已有Cookie")
+                    Text("我已知悉")
                 }
             }
         }

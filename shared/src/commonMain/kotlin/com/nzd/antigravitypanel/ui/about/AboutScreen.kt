@@ -20,10 +20,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nzd.antigravitypanel.data.update.DOWNLOAD_EXTRACT_CODE
+import com.nzd.antigravitypanel.data.update.DOWNLOAD_PAGE_URL
+import com.nzd.antigravitypanel.data.update.UpdateRepository
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
@@ -56,8 +61,10 @@ import com.nzd.antigravitypanel.ui.component.developerAvatarPainter
 import com.nzd.antigravitypanel.ui.component.effect.BgEffectBackground
 import com.nzd.antigravitypanel.ui.component.openUrl
 import com.nzd.antigravitypanel.ui.component.rememberPredictiveNavLayerState
+import com.nzd.antigravitypanel.ui.component.showToast
 import com.nzd.antigravitypanel.ui.settings.SettingsItemMargin
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -84,6 +91,7 @@ import top.yukonga.miuix.kmp.icon.extended.Community
 import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Link
+import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -126,6 +134,47 @@ fun AboutScreen(
     val version = remember { appVersionName() }
     val topAppBarScrollBehavior = MiuixScrollBehavior()
     val lazyListState = rememberLazyListState()
+
+    // ---- 检查更新 ----
+    val scope = rememberCoroutineScope()
+    // 单独一条 HttpClient：它打的是 GitHub，和游戏接口不是一回事。
+    // 共用 NzApi 那条连接只会互相拖超时，还会把 cookie 带到一个根本不需要它的域名上
+    val updateRepository = remember { UpdateRepository() }
+    DisposableEffect(Unit) {
+        onDispose { updateRepository.close() }
+    }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateState by remember { mutableStateOf<UpdateCheckState?>(null) }
+
+    fun checkUpdate() {
+        // 连点两下不该发两次请求：请求本身没有副作用，但结果回来两次会连着弹两个窗
+        if (checkingUpdate) return
+        scope.launch {
+            checkingUpdate = true
+            // 异常在这里接住：null（没新版）和抛异常（没查成）要给两种不同的反馈
+            val result = runCatching { updateRepository.fetchIfNewer(version) }
+            checkingUpdate = false
+            result
+                .onSuccess { update ->
+                    if (update == null) {
+                        showToast("已经是最新版本")
+                    } else {
+                        updateState = UpdateCheckState.Available(version, update)
+                    }
+                }
+                .onFailure { updateState = UpdateCheckState.Failed }
+        }
+    }
+
+    /**
+     * 去下载页。顺序是**先复制、再提示、最后切浏览器**：
+     * 切成浏览器之后 Toast 就看不见了，而用户此刻正需要知道提取码已经在剪贴板里。
+     */
+    fun goDownload() {
+        copyToClipboard(DOWNLOAD_EXTRACT_CODE, "提取码")
+        showToast("提取码 $DOWNLOAD_EXTRACT_CODE 已复制，到下载页粘贴即可")
+        openUrl(DOWNLOAD_PAGE_URL)
+    }
 
     // 进度不是"滚了多少 dp"，而是"logoSpacer 被滚掉了多少比例"。
     // 用 spacer 的实际高度做分母，logo 内容多高都不会让曲线跑偏。
@@ -196,6 +245,8 @@ fun AboutScreen(
                     lazyListState = lazyListState,
                     scrollProgress = { scrollProgress },
                     version = version,
+                    updateChecking = checkingUpdate,
+                    onCheckUpdate = ::checkUpdate,
                     onOpenReferences = { showReferences = true },
                     onShowDisclaimer = { showDisclaimer = true },
                 )
@@ -226,6 +277,12 @@ fun AboutScreen(
             onDismiss = { showReferences = false },
         )
     }
+
+    UpdateCheckDialogs(
+        state = updateState,
+        onDismiss = { updateState = null },
+        onDownload = { goDownload() },
+    )
 
     if (showDisclaimer) {
         WindowDialog(
@@ -267,6 +324,8 @@ private fun AboutContent(
     lazyListState: LazyListState,
     scrollProgress: () -> Float,
     version: String,
+    updateChecking: Boolean,
+    onCheckUpdate: () -> Unit,
     onOpenReferences: () -> Unit,
     onShowDisclaimer: () -> Unit,
 ) {
@@ -442,6 +501,20 @@ private fun AboutContent(
             item(key = "project") {
                 AboutSectionTitle("项目")
                 Card(modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth()) {
+                    // 检查更新放这一组的第一条：它是这一页里唯一一个"点下去会干活"的条目，
+                    // 压在版权声明后面就没人找得到了
+                    AboutAction(
+                        title = "检查更新",
+                        icon = MiuixIcons.Refresh,
+                        // 这条摘要改成"说明这条路怎么走"而不是"当前版本号"：
+                        // 版本号在上面标题那一栏已经说了，而 api.github.com 在国内时好时坏，
+                        // 不提前说清"查不到多半是网络"，用户只会以为 app 坏了
+                        summary = if (updateChecking) {
+                            "正在检查…"
+                        } else {
+                            "使用 GitHub Releases API 检查更新，若无法正常获取请尝试准备合适工具。"
+                        },
+                    ) { onCheckUpdate() }
                     AboutAction(
                         title = "GitHub",
                         icon = MiuixIcons.Info,

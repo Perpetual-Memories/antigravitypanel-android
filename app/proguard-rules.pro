@@ -70,6 +70,13 @@
 -dontwarn com.google.protobuf.**
 -dontwarn com.google.gson.**
 
+# ---------------- 扫码登录（CameraX + ZXing）----------------
+# CameraX 自带 consumer 规则（PreviewView 的 XML 属性、Camera2 的反射入口都在里面），不用补。
+# ZXing 只用了 core，调用链是显式 new 的（MultiFormatReader → QRCodeReader），摇树删不掉；
+# 但它 core 里还带着 javase / client 那几个包的引用，运行时用不到、编译期也不在 classpath 上，
+# 不 dontwarn 的话 R8 会把它当错误抛出来。
+-dontwarn com.google.zxing.**
+
 # ---------------- JNI ----------------
 -keepclasseswithmembernames class * {
     native <methods>;

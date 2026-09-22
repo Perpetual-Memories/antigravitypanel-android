@@ -78,6 +78,13 @@ kotlin {
                 implementation(libs.androidx.security.crypto)
                 // 实验性功能的「导入 JSON」要用系统的 SAF 文件选择器
                 implementation(libs.androidx.activity)
+                // 扫码登录：相机预览 + ZXing 解码。这两个都是纯 android 库，
+                // 不能进 commonMain（将来加桌面目标时 commonMain 会连带把相机拖过去）
+                implementation(libs.androidx.camera.core)
+                implementation(libs.androidx.camera.camera2)
+                implementation(libs.androidx.camera.lifecycle)
+                implementation(libs.androidx.camera.view)
+                implementation(libs.zxing.core)
             }
         }
 

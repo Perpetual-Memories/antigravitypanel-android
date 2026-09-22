@@ -161,6 +161,13 @@ class OverviewViewModel(
             return
         }
         scope.launch {
+            // 每一轮刷新都重新盖上「同步中」遮罩，冷启动和手动刷新一视同仁：
+            // 卡片那句「已识别」是**上一次**的结论，这一轮还没被服务端确认过，
+            // 不盖等于拿旧结论冒充新结论。跑完（成功或失败都算）由下面置回 false。
+            // 已经是「未输入」时不盖——本来就没登录的状态卡不该装作正在同步。
+            if (_state.value.cookieStatus != CookieStatus.MISSING) {
+                _state.value = _state.value.copy(cookieVerifying = true)
+            }
             _state.value = _state.value.copy(loading = true, error = null)
             try {
                 val snapshot = repository.load(cookie, currentEpochSeconds())

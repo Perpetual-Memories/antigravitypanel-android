@@ -30,6 +30,7 @@ import com.nzd.antigravitypanel.domain.difficultyOptions
 import com.nzd.antigravitypanel.domain.difficultyOptionsForMode
 import com.nzd.antigravitypanel.domain.difficultyRank
 import com.nzd.antigravitypanel.domain.groupMapsBySeason
+import com.nzd.antigravitypanel.domain.mergeMapStats
 import com.nzd.antigravitypanel.domain.mapNameOf
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.domain.parseCalendar
@@ -39,6 +40,7 @@ import com.nzd.antigravitypanel.util.startOfServerDay
 import kotlinx.serialization.builtins.ListSerializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -328,6 +330,51 @@ class P4DomainTest {
     }
 
     @Test
+    fun mergeFallsBackToLocalPerMap() {
+        // 真实线上 bug：地图分布页原来是"官方到位就整页用官方"。而 buildOfficialMapStats
+        // 会给**配置里的每一张图**都生成条目，官方没下发的图填 0 ——
+        // 于是 S4 新图（20 朔望计划 / 22 禁魔岛）在官方还没把它们纳进
+        // `center.user.map.stats` 的那几天一直是 0，而本地库里明明有几场，
+        // 历史战绩页也能看到具体对局。
+        //
+        // officialIds 里只有 18：官方只为 18 号图说了话
+        val official = buildOfficialMapStats(officialStats(), officialConfig(), GameMode.HUNT)
+        val local = listOf(
+            localEntry(mapId = 20, name = "朔望计划", total = 4, win = 1),
+        )
+        val merged = mergeMapStats(official, local, officialIds = setOf(18))
+
+        // 官方说了话的图：口径不变（通关 77），标签仍是「总通关」
+        val hunt18 = merged.first { it.mapId == 18 }
+        assertTrue(hunt18.official)
+        assertEquals(77, hunt18.total)
+
+        // 官方没下发的新图：退回本地口径，标签跟着变成「总场次」
+        val fresh = merged.first { it.mapId == 20 }
+        assertFalse(fresh.official)
+        assertEquals(4, fresh.total)
+    }
+
+    @Test
+    fun mergeAppendsMapsMissingFromConfig() {
+        // 配置比客户端旧、或者某张图压根没下发时：本地打过，但 buildOfficialMapStats
+        // 的配置循环里根本没有它。这类图必须追加进去，不能凭空消失。
+        val official = buildOfficialMapStats(emptyList(), officialConfig(), GameMode.HUNT)
+        val local = listOf(localEntry(mapId = 20, name = "朔望计划", total = 9, win = 3))
+        val merged = mergeMapStats(official, local, officialIds = emptySet())
+        assertTrue(merged.any { it.mapId == 20 && it.total == 9 })
+    }
+
+    /** 一条本地口径的地图统计，merge 的两个测试用例用。 */
+    private fun localEntry(mapId: Int, name: String, total: Int, win: Int) = MapStatEntry(
+        mapId = mapId,
+        name = name,
+        total = total,
+        win = win,
+        byDifficulty = emptyList(),
+    )
+
+    @Test
     fun officialEntryKeepsLocalWinRateForTheProgressBar() {
         // 官方口径的 total 是"通关数"，拿它当分母算通关率永远是 100%。
         // 那条进度条要的是本地的 win/plays，得单独带进来。
@@ -505,6 +552,18 @@ class P4DomainTest {
         assertEquals(GameMode.TIME_HUNT, modeOf(424))
     }
 
+    @Test
+    fun s4MapsAreKnown() {
+        // S4·朔望计划（2026-09-22）新增的三张图。不进内置表的话会被判成
+        // UNKNOWN / 未知(id)，地图分布页连卡都不会有。
+        assertEquals("朔望计划", mapNameOf(20))
+        assertEquals("禁魔岛", mapNameOf(22))
+        assertEquals("银河战舰", mapNameOf(311))
+        assertEquals(GameMode.HUNT, modeOf(20))
+        assertEquals(GameMode.HUNT, modeOf(22))
+        assertEquals(GameMode.TOWER, modeOf(311))
+    }
+
     // ---------------- 地图聚合 ----------------
 
     @Test
@@ -563,11 +622,17 @@ class P4DomainTest {
     @Test
     fun huntIsSplitIntoSeasonsNewestFirst() {
         val sections = groupMapsBySeason(GameMode.HUNT, emptyList())
-        assertEquals(listOf("S3 赛季", "S2 赛季", "S1 赛季", "S0 赛季"), sections.map { it.title })
-        assertEquals(listOf(18, 15), sections[0].entries.map { it.mapId })
-        assertEquals(listOf(13, 19), sections[1].entries.map { it.mapId })
-        assertEquals(listOf(16, 17), sections[2].entries.map { it.mapId })
-        assertEquals(listOf(12, 14, 21), sections[3].entries.map { it.mapId })
+        assertEquals(
+            listOf("S4 赛季", "S3 赛季", "S2 赛季", "S1 赛季", "S0 赛季"),
+            sections.map { it.title },
+        )
+        // S4·朔望计划（2026-09-22 上线）：朔望计划 + 禁魔岛
+        assertEquals(listOf(20, 22), sections[0].entries.map { it.mapId })
+        assertEquals(listOf(18, 15), sections[1].entries.map { it.mapId })
+        // 官方次序是樱之渊在前（19 然后 13）
+        assertEquals(listOf(19, 13), sections[2].entries.map { it.mapId })
+        assertEquals(listOf(16, 17), sections[3].entries.map { it.mapId })
+        assertEquals(listOf(12, 14, 21), sections[4].entries.map { it.mapId })
         // 没打过的图也要出现，数字是 0
         assertTrue(sections.all { section -> section.entries.all { it.total == 0 } })
     }
@@ -579,7 +644,7 @@ class P4DomainTest {
         assertEquals(752, flat[16]?.total)
         assertEquals(92, flat[21]?.total)
         // 次序是官方次序，不是场次降序：S0 里 21 排在 12/14 后面
-        assertEquals(listOf(12, 14, 21), sections[3].entries.map { it.mapId })
+        assertEquals(listOf(12, 14, 21), sections[4].entries.map { it.mapId })
     }
 
     @Test
@@ -589,7 +654,7 @@ class P4DomainTest {
         assertEquals("其他地图", sections.last().title)
         assertEquals(listOf(112), sections.last().entries.map { it.mapId })
         // 名次不变，S0 还是三张
-        assertEquals(listOf(12, 14, 21), sections[3].entries.map { it.mapId })
+        assertEquals(listOf(12, 14, 21), sections[4].entries.map { it.mapId })
     }
 
     @Test
@@ -597,7 +662,8 @@ class P4DomainTest {
         val tower = groupMapsBySeason(GameMode.TOWER, emptyList())
         assertEquals(1, tower.size)
         assertEquals("", tower.single().title)
-        assertEquals(listOf(310, 309, 304, 306, 300), tower.single().entries.map { it.mapId })
+        // 311 银河战舰是 S4 新增的塔防图，官方把它排在最前
+        assertEquals(listOf(311, 310, 309, 304, 306, 300), tower.single().entries.map { it.mapId })
 
         val timeHunt = groupMapsBySeason(GameMode.TIME_HUNT, emptyList())
         // 月海火线（424）不在列表里：官方明确跳过它（`supportStatistics = false`），

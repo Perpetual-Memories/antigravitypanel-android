@@ -20,6 +20,9 @@ androidx-activity = "1.13.0"
 androidx-security-crypto = "1.1.0"
 androidx-navigation3 = "1.1.4"
 androidx-navigationevent = "1.1.2"
+# 扫码登录：PC 端出二维码、移动端扫。相机预览走 CameraX，解码走 ZXing（纯 Java，不碰 GMS）
+androidx-camera = "1.6.2"
+zxing = "3.5.4"
 
 # P1 已接入 Ktor；Room 在 P2 落地，Coil 在 P4 接掉落物图标时落地
 ktor = "3.5.2"
@@ -66,6 +69,15 @@ androidx-navigationevent = { module = "androidx.navigationevent:navigationevent-
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junit" }
 
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "androidx-security-crypto" }
+
+# ---- 扫码（只有 android 目标，全部挂 androidMain）----
+# camera-view 里有 PreviewView，camera-camera2 是 CameraX 1.x 唯一的相机实现
+androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "androidx-camera" }
+androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "androidx-camera" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "androidx-camera" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "androidx-camera" }
+# 只解二维码，不用 ML Kit 是不想为个扫码把 GMS 传递依赖拖进来（国内设备没有 GMS）
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 # ---- 本地数据库：Room（KMP 版，commonMain 直接用，驱动用 bundled）----
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }

@@ -8,6 +8,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 扫码登录：扫 PC 端给出的二维码。required=false —— 扫码是可选功能，
+         没有摄像头的设备（电视盒子等）必须还能装得上 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+
     <application
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
