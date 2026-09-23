@@ -68,8 +68,8 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  * 概览页。布局照 HyperIsland 的 `OverviewPage`：
  * 顶部状态卡（左侧凭证状态 + 右侧两个数据卡）、下方指标卡、活动日历。
  *
- * 刷新按钮不在这里——它在宿主 Scaffold 的 TopAppBar 右侧，和 HyperIsland 一样
- * 是跟着"应用名"标题走的，见 `AppContent` 里 page==0 时的 actions。
+ * 刷新按钮不在这里——它在页面自己的 TopAppBar 右侧（AppContent 里的 `RootPage`），
+ * 和 HyperIsland 一样是跟着"应用名"标题走的。
  *
  * @param insets Scaffold 给的顶栏 / 底栏高度。列表**不裁掉**这块区域（内容要从
  *   顶栏底下穿过去给磨砂采样），而是靠 `contentPadding` 把首项顶到顶栏下面。

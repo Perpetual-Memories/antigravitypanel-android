@@ -23,8 +23,8 @@ android {
         applicationId = "com.nzd.antigravitypanel"
         minSdk = 33
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
     // 发布签名：凭据放 keystore.properties（和 *.jks 一样在 .gitignore 里）。
     // **文件不存在就退化成不签名**，而不是让构建直接失败——别人 clone 下来跑

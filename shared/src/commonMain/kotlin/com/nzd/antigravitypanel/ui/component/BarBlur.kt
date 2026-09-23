@@ -9,6 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
@@ -32,6 +33,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal val LocalBarBlurEnabled = staticCompositionLocalOf { false }
 
 internal val LocalBarBlurBackdrop = staticCompositionLocalOf<LayerBackdrop?> { null }
+
+/**
+ * 悬浮底栏占掉的高度（含它自己的下边距）。
+ *
+ * 一级页必须自己在 `contentPadding` 上补这一段：底栏是浮在内容之上的，
+ * 宿主 Scaffold 给一级页的 padding 里没有它（一级页自己带顶栏，一看就明白的那套
+ * 「Scaffold 替你把上下都算好」在这里不成立）。
+ */
+internal val LocalRootBottomBarPadding = staticCompositionLocalOf { 0.dp }
 
 /**
  * 磨砂的宿主：开离屏 layer 并把 [content] 整个包进 [Box]。

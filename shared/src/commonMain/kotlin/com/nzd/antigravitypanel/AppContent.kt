@@ -1,6 +1,9 @@
 package com.nzd.antigravitypanel
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,7 +69,10 @@ import com.nzd.antigravitypanel.ui.build.BuildPlanScreen
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
+import com.nzd.antigravitypanel.ui.component.LAYER_EXIT_DURATION
 import com.nzd.antigravitypanel.ui.component.LocalBarBlurBackdrop
+import com.nzd.antigravitypanel.ui.component.LocalBarBlurEnabled
+import com.nzd.antigravitypanel.ui.component.LocalRootBottomBarPadding
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackHandler
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackdrop
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayer
@@ -816,19 +825,39 @@ private fun MainScreen(
         )
     }
 
-    // 每页一份滚动行为：切页时顶栏读的是当前页那份，
-    // 不会出现"在战绩页滑到底、切到概览顶栏还是折叠的"这种错位。
-    val overviewBehavior = MiuixScrollBehavior()
-    val historyBehavior = MiuixScrollBehavior()
-    val mapsBehavior = MiuixScrollBehavior()
-    val settingsBehavior = MiuixScrollBehavior()
-    val behaviors = remember(
-        overviewBehavior,
-        historyBehavior,
-        mapsBehavior,
-        settingsBehavior,
-    ) {
-        listOf(overviewBehavior, historyBehavior, mapsBehavior, settingsBehavior)
+    // 悬浮底栏的出入场进度：0 = 稳在原位，1 = 完全滑出屏幕（同时淡透）。
+    //
+    // 直接 `AnimatedVisibility` 掉会让底栏"啪"地消失 / "啪"地出现，和二级页那一段
+    // 横向滑入对不上。照 HyperIsland 的 AppShell：底栏永远在场，靠 translationY + alpha
+    // 走完，跟页面同一段时间轴。
+    val bottomBarProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(detailVisible, detailNavState.isBackActive) {
+        // 预测返回手势期间**不插手**：那一段位移交给 [bottomBarHidden] 走跟手分支，
+        // 这里插一脚的话，手势刚起手底栏就自己弹回来了。
+        if (detailNavState.isBackActive) return@LaunchedEffect
+        bottomBarProgress.animateTo(
+            targetValue = if (detailVisible) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (detailVisible) {
+                    LAYER_EXIT_DURATION
+                } else {
+                    BOTTOM_BAR_ENTER_DURATION
+                },
+                easing = FastOutSlowInEasing,
+            ),
+        )
+    }
+
+    // 手势返回期间**跟手**：`backgroundDepth` 就是"下层还被盖住多少"（1 = 完全盖住）。
+    // 拿它当底栏的隐藏进度，手指拖多少底栏就回来多少；取消时它退回 1（底栏缩回去），
+    // 提交时 commitBack 把它送到 0（底栏归位），两种结局都不用额外接。
+    // 手势结束那一刻 isBackActive 转假，[bottomBarProgress] 已经被
+    // additionalCommitAnimation 送到 0 了，两条支路在这里是连续的，不会跳。
+    val bottomBarHidden = if (detailNavState.isBackActive) {
+        detailNavState.backgroundDepth.value.coerceIn(0f, 1f)
+    } else {
+        bottomBarProgress.value
     }
 
     // 磨砂的宿主必须包在 Scaffold 外面：它负责开离屏 layer，
@@ -839,151 +868,155 @@ private fun MainScreen(
         // 就算用户关了磨砂，这里也照样得开离屏 layer，否则虚化退化成一层纯色。
         captureForEffects = detailNavState.requiresBackdropCapture(detailVisible),
     ) {
+        // 顶栏**不在这里**。它归每个一级页自己（见 [RootPage]），这样切页时顶栏是跟着
+        // 页面一起横向滑进来的，而不是原地换一行标题 —— 而且各页的折叠状态互不干扰：
+        // 概览滑到底把大标题收起来，切到设置看到的仍然是没滚过的完整顶栏。
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-            topBar = {
-                // 顶栏读 settledPage 而不是 currentPage：currentPage 在跨页动画
-                // **走到一半**时就翻到相邻那页了，顶栏会跟着重建一次。
-                // 历史战绩那个筛选菜单不便宜（要按全量对局算地图下拉），滚一趟重建两遍
-                // 没必要；而且标题中途闪一下"历史战绩"再变"地图分布"也难看。
-                // settledPage 只在停稳后才变，正好是"该换标题"的时刻。
-                val page = pagerState.settledPage
-                val title = if (page == Tabs.OVERVIEW) Tabs.APP_NAME else Tabs.TITLES[page]
-                BlurredBar(topGradient = true) {
-                    // TopAppBar（不是 SmallTopAppBar）才有大标题：页面在顶部时标题单独占一行、
-                    // 不和右侧按钮挤在一起，下滑后才收进工具条。
-                    TopAppBar(
-                        title = title,
-                        largeTitle = title,
-                        color = Color.Transparent,
-                        scrollBehavior = behaviors[page],
-                        actions = {
-                            when (page) {
-                                Tabs.OVERVIEW -> {
-                                    // 首胜宝箱在刷新按钮**左边**：它是"看一眼"的信息，
-                                    // 刷新是要点的操作，主操作放最右更符合右手习惯
-                                    FirstWinChestButton(
-                                        count = firstWinCount,
-                                        onClick = onOpenChestDialog,
-                                    )
-                                    IconButton(onClick = onRefresh) {
-                                        Icon(
-                                            imageVector = MiuixIcons.Refresh,
-                                            contentDescription = "刷新数据",
-                                            tint = MiuixTheme.colorScheme.onSurface,
-                                        )
-                                    }
-                                }
-
-                                // 筛选改成级联下拉菜单，五个维度各一个子菜单。
-                                // 展开状态由组件自己管，不用再在外面存一个 "filterSheet" 布尔值。
-                                Tabs.HISTORY -> HistoryFilterMenu(
-                                    filter = historyFilter,
-                                    allMatches = historyAllMatches,
-                                    config = gameConfig,
-                                    onFilterChange = { historyViewModel.setFilter(it) },
-                                ) {
-                                    Icon(
-                                        imageVector = MiuixIcons.Tune,
-                                        contentDescription = "筛选",
-                                        tint = MiuixTheme.colorScheme.onSurface,
-                                    )
-                                }
+            bottomBar = {
+                // 底栏留在 Scaffold 的 bottomBar 槽里（而不是像 HyperIsland 那样另外铺一层
+                // overlay）：一级页里的弹层默认注册到**根** Scaffold 的 popup host，
+                // 那层画在 bottomBar 之后，刚好压住底栏；换成 overlay 就会被底栏反过来压住。
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        translationY = size.height * bottomBarHidden
+                        alpha = 1f - bottomBarHidden
+                    },
+                ) {
+                    LiquidNavigationBar(
+                        items = navigationItems,
+                        // 底栏反过来要读 currentPage：指示器得**跟着滑**才有手感。
+                        // 用 settledPage 的话，跨页动画跑完之前指示器一直钉在旧的那一格，
+                        // 看着像点了没反应。currentPage 中途翻到相邻页只是让指示器多走一段，
+                        // 不会再引发切页——底栏组件里那条"回灌即回调"的路已经拿掉了。
+                        selectedIndex = pagerState.currentPage,
+                        onItemClick = { index ->
+                            // 已经在这一页就别再滚一次：既省一次动画，也避免打断正在跑的那次。
+                            // 滑出过程中（二级页在场）也不响应：那时候底栏已经看不见了。
+                            if (!detailVisible && index != pagerState.settledPage) {
+                                coroutineScope.launch { pagerState.animateScrollToPage(index) }
                             }
                         },
+                        modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
                     )
                 }
-            },
-            bottomBar = {
-                LiquidNavigationBar(
-                    items = navigationItems,
-                    // 底栏反过来要读 currentPage：指示器得**跟着滑**才有手感。
-                    // 用 settledPage 的话，跨页动画跑完之前指示器一直钉在旧的那一格，
-                    // 看着像点了没反应。currentPage 中途翻到相邻页只是让指示器多走一段，
-                    // 不会再引发切页——底栏组件里那条"回灌即回调"的路已经拿掉了。
-                    selectedIndex = pagerState.currentPage,
-                    onItemClick = { index ->
-                        // 已经在这一页就别再滚一次：既省一次动画，也避免打断正在跑的那次
-                        if (index != pagerState.settledPage) {
-                            coroutineScope.launch { pagerState.animateScrollToPage(index) }
-                        }
-                    },
-                    modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
-                )
             },
         ) { innerPadding ->
             // 关键：这一层铺满整屏且**不裁掉顶栏那一条**，内容滚动时会从顶栏底下穿过去，
             // 顶栏的 progressiveTextureBlur 才有东西可糊。页面自己用 contentPadding 躲开顶栏。
             BarBackdropContent(modifier = Modifier.fillMaxSize()) {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    // 与 HyperIsland 一致：多留一页在视口外，切过去时不用临时现组
-                    beyondViewportPageCount = 1,
-                ) { page ->
-                    // 滚动行为挂在页面外层：LazyColumn 的滚动增量会沿嵌套滚动链冒泡到这里，
-                    // 顶栏据此决定大标题收不收、磨砂出不出。
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .nestedScroll(behaviors[page].nestedScrollConnection),
-                    ) {
-                        when (page) {
-                            Tabs.OVERVIEW -> OverviewScreen(
-                                viewModel = overviewViewModel,
-                                signInViewModel = signInViewModel,
-                                qqGiftViewModel = qqGiftViewModel,
-                                xinyueViewModel = xinyueViewModel,
-                                onOpenSignIn = onOpenSignIn,
-                                onOpenAccountDetail = onOpenAccountDetail,
-                                onOpenAllActivities = {
-                                    onOpenAllActivities()
-                                },
-                                onOpenBuildPlan = onOpenBuildPlan,
-                                plan = buildPlan,
-                                insets = innerPadding,
-                            )
+                CompositionLocalProvider(
+                    LocalRootBottomBarPadding provides innerPadding.calculateBottomPadding(),
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        // 与 HyperIsland 一致：多留一页在视口外，切过去时不用临时现组
+                        beyondViewportPageCount = 1,
+                    ) { page ->
+                        RootPage(
+                            title = if (page == Tabs.OVERVIEW) {
+                                Tabs.APP_NAME
+                            } else {
+                                Tabs.TITLES[page]
+                            },
+                            actions = {
+                                when (page) {
+                                    Tabs.OVERVIEW -> {
+                                        // 首胜宝箱在刷新按钮**左边**：它是"看一眼"的信息，
+                                        // 刷新是要点的操作，主操作放最右更符合右手习惯
+                                        FirstWinChestButton(
+                                            count = firstWinCount,
+                                            onClick = onOpenChestDialog,
+                                        )
+                                        IconButton(onClick = onRefresh) {
+                                            Icon(
+                                                imageVector = MiuixIcons.Refresh,
+                                                contentDescription = "刷新数据",
+                                                tint = MiuixTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                    }
 
-                            Tabs.HISTORY -> HistoryScreen(
-                                viewModel = historyViewModel,
-                                config = gameConfig,
-                                pinned = pinned,
-                                favorite = favorite,
-                                insets = innerPadding,
-                                onOpenDetail = { roomId ->
-                                    onOpenMatchDetail(roomId)
-                                },
-                            )
+                                    // 筛选改成级联下拉菜单，五个维度各一个子菜单。
+                                    // 展开状态由组件自己管，不用再在外面存一个 "filterSheet" 布尔值。
+                                    Tabs.HISTORY -> HistoryFilterMenu(
+                                        filter = historyFilter,
+                                        allMatches = historyAllMatches,
+                                        config = gameConfig,
+                                        onFilterChange = { historyViewModel.setFilter(it) },
+                                    ) {
+                                        Icon(
+                                            imageVector = MiuixIcons.Tune,
+                                            contentDescription = "筛选",
+                                            tint = MiuixTheme.colorScheme.onSurface,
+                                        )
+                                    }
+                                }
+                            },
+                        ) { insets ->
+                            when (page) {
+                                Tabs.OVERVIEW -> OverviewScreen(
+                                    viewModel = overviewViewModel,
+                                    signInViewModel = signInViewModel,
+                                    qqGiftViewModel = qqGiftViewModel,
+                                    xinyueViewModel = xinyueViewModel,
+                                    onOpenSignIn = onOpenSignIn,
+                                    onOpenAccountDetail = onOpenAccountDetail,
+                                    onOpenAllActivities = {
+                                        onOpenAllActivities()
+                                    },
+                                    onOpenBuildPlan = onOpenBuildPlan,
+                                    plan = buildPlan,
+                                    insets = insets,
+                                )
 
-                            Tabs.MAPS -> MapDistributionScreen(
-                                viewModel = mapViewModel,
-                                insets = innerPadding,
-                            )
+                                Tabs.HISTORY -> HistoryScreen(
+                                    viewModel = historyViewModel,
+                                    config = gameConfig,
+                                    pinned = pinned,
+                                    favorite = favorite,
+                                    insets = insets,
+                                    onOpenDetail = { roomId ->
+                                        onOpenMatchDetail(roomId)
+                                    },
+                                )
 
-                            Tabs.SETTINGS -> SettingsScreen(
-                                state = settings,
-                                onAutoRefreshChange = onAutoRefreshChange,
-                                onRetentionMonthsChange = onRetentionMonthsChange,
-                                onClearLocalData = onClearLocalData,
-                                onOpenAbout = onOpenAbout,
-                                onOpenTheme = onOpenTheme,
-                                onImportJson = onImportJson,
-                                insets = innerPadding,
-                            )
+                                Tabs.MAPS -> MapDistributionScreen(
+                                    viewModel = mapViewModel,
+                                    insets = insets,
+                                )
+
+                                Tabs.SETTINGS -> SettingsScreen(
+                                    state = settings,
+                                    onAutoRefreshChange = onAutoRefreshChange,
+                                    onRetentionMonthsChange = onRetentionMonthsChange,
+                                    onClearLocalData = onClearLocalData,
+                                    onOpenAbout = onOpenAbout,
+                                    onOpenTheme = onOpenTheme,
+                                    onImportJson = onImportJson,
+                                    insets = insets,
+                                )
+                            }
                         }
                     }
                 }
             }
+            // 虚化层必须放在 Scaffold 的 **content 里**，不能放到 Scaffold 之后：
+            // 它是一张铺满整屏的模糊位图（不透明），放到外面会把悬浮底栏连它那段
+            // 下滑/上浮动画一起盖住 —— 表现就是"底栏直接消失 / 直接出现"。
+            // 放在 content 里正好夹在一级内容之上、底栏之下，和 HyperIsland 一致
+            // （它把底栏铺在所有图层之后，这里用 content 内层达到同样的 z 序，
+            //  好处是一级页的 Snackbar 和弹层仍然压得住底栏）。
+            PredictiveNavBackdrop(
+                state = detailNavState,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // ---- 二级详情页图层 ----
         // 必须放在 Scaffold **之后**：底栏是浮在上面的，写进 Scaffold 的 content
         // 里会被底栏压住，二级页右下角就露出一条导航条。
-        // 虚化层夹在中间（一级内容之上、二级页之下），手势返回时才能看到背景糊掉。
-        PredictiveNavBackdrop(
-            state = detailNavState,
-            modifier = Modifier.fillMaxSize(),
-        )
         PredictiveNavLayer(
             visible = detailVisible,
             state = detailNavState,
@@ -996,10 +1029,75 @@ private fun MainScreen(
             visible = detailVisible,
             enabled = detailVisible,
             state = detailNavState,
+            maxTranslationPercent = predictiveBackTranslation.toLong(),
             onDismiss = onDismissDetail,
+            // 手势提交时底栏跟着页面一起归位（同一组 duration / easing）
+            additionalCommitAnimation = { durationMillis, easing ->
+                bottomBarProgress.animateTo(0f, tween(durationMillis, easing = easing))
+            },
         )
     }
 }
+
+/**
+ * 一级页的壳：自带一条顶栏 + 自己的滚动行为。照 HyperIsland 的 `CollapsingPage`。
+ *
+ * 顶栏**必须长在页面里**而不是宿主 Scaffold 上，两个原因：
+ * 1. 切页时它跟着页面一起横向滑进来，能看出"换了一页"；
+ *    挂在宿主上就是原地换一行标题，动画全靠猜。
+ * 2. 折叠状态天然按页隔离。共用一份 TopAppBar 时，在概览滑到底把大标题收起来、
+ *    再切到设置，顶栏会在切页那一帧突然弹回全高 —— 用户看到的就是"顶栏闪现变高"。
+ *
+ * @param insets 顶栏高度 + 悬浮底栏占掉的高度。列表**不裁掉**这两块（内容要从顶栏
+ *   底下穿过去给磨砂采样），而是靠自己的 `contentPadding` 躲开。
+ */
+@Composable
+private fun RootPage(
+    title: String,
+    // RowScope：TopAppBar 的 actions 就是一行，跟着它走才能在里面用 Modifier.weight 之类的
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    val scrollBehavior = MiuixScrollBehavior()
+    val blurEnabled = LocalBarBlurEnabled.current
+    BarBlurHost(enabled = blurEnabled) {
+        Scaffold(
+            topBar = {
+                BlurredBar(topGradient = true) {
+                    // TopAppBar（不是 SmallTopAppBar）才有大标题：页面在顶部时标题单独占一行、
+                    // 不和右侧按钮挤在一起，下滑后才收进工具条。
+                    TopAppBar(
+                        title = title,
+                        largeTitle = title,
+                        color = Color.Transparent,
+                        scrollBehavior = scrollBehavior,
+                        actions = actions,
+                    )
+                }
+            },
+        ) { padding ->
+            BarBackdropContent(modifier = Modifier.fillMaxSize()) {
+                // 滚动行为挂在页面外层：LazyColumn 的滚动增量会沿嵌套滚动链冒泡到这里，
+                // 顶栏据此决定大标题收不收、磨砂出不出。
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                ) {
+                    content(
+                        PaddingValues(
+                            top = padding.calculateTopPadding(),
+                            bottom = LocalRootBottomBarPadding.current,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 悬浮底栏回到原位的时长。比二级页滑出(380ms)短一点，视觉上是"页面先把路让开"。 */
+private const val BOTTOM_BAR_ENTER_DURATION = 300
 
 /**
  * 每日首胜宝箱按钮。图标右上角挂一个小红点，红点里是**还能领几个**。

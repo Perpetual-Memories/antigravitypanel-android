@@ -3,6 +3,7 @@ package com.nzd.antigravitypanel.ui.component
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
@@ -111,8 +112,14 @@ internal class PredictiveNavLayerState internal constructor() {
         isBackActive = false
     }
 
+    /**
+     * @param additionalAnimation 提交动画期间**同时**要跑的别的动画（当前只有悬浮底栏的
+     *   归位）。它拿到的 duration / easing 和页面滑出用的是同一组，所以底栏是跟着页面
+     *   一起回位的，而不是各跑各的。
+     */
     internal suspend fun commitBack(
         maxTranslationPercent: Long,
+        additionalAnimation: suspend (durationMillis: Int, easing: Easing) -> Unit = { _, _ -> },
         onDismiss: () -> Unit,
     ) {
         if (isCommitting) return
@@ -133,6 +140,7 @@ internal class PredictiveNavLayerState internal constructor() {
                 launch { progress.animateTo(targetProgress, tween(duration, easing = settleEasing)) }
                 launch { backdropIntensity.animateTo(0f, tween(duration, easing = settleEasing)) }
                 launch { backgroundDepth.animateTo(0f, tween(duration, easing = settleEasing)) }
+                launch { additionalAnimation(duration, settleEasing) }
             }
             onDismiss()
             // 给 AnimatedVisibility 一点时间把退出动画跑完再复位，
@@ -166,6 +174,7 @@ internal fun PredictiveNavBackHandler(
     state: PredictiveNavLayerState,
     maxTranslationPercent: Long = DEFAULT_PREDICTIVE_BACK_TRANSLATION_PERCENT,
     onDismiss: () -> Unit,
+    additionalCommitAnimation: suspend (durationMillis: Int, easing: Easing) -> Unit = { _, _ -> },
 ) {
     LaunchedEffect(visible, state.isBackActive) {
         state.animateVisibility(visible)
@@ -180,7 +189,7 @@ internal fun PredictiveNavBackHandler(
             cancelled = true
         }
         if (!cancelled) {
-            state.commitBack(maxTranslationPercent, onDismiss)
+            state.commitBack(maxTranslationPercent, additionalCommitAnimation, onDismiss)
         }
     }
 
