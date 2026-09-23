@@ -17,12 +17,12 @@
 
 ## 开始用
 
-Release 页：**<https://github.com/Perpetual-Memories/antigravitypanel-android/releases>**
+下载-Release 页：**<https://github.com/Perpetual-Memories/antigravitypanel-android/releases>**
 
 应用没有内置获取cookie功能，请自行获取。
 - **手机 root 了**：装 [Reqable](https://reqable.com/) 抓微信小程序的 HTTPS 流量，
   在请求头里复制整条 `Cookie`。
-- **手机没有 root**：用 PC 端「反重力数据面板」抓取，再把 Cookie 粘贴到手机上。
+- **手机没有 root**：借助 PC 端「反重力数据面板」扫码登录。
 
 ### 关于隐私
 
@@ -44,6 +44,8 @@ Release 页：**<https://github.com/Perpetual-Memories/antigravitypanel-android/
 | [NZM](https://github.com/HaMan412/NZM) — 哈曼 @Haman412 | 一切的起点|
 | [Miuix](https://github.com/compose-miuix-ui/miuix/) — @YuKongA | UI 组件库 |
 | [HyperIsland](https://github.com/1812z/HyperIsland) — 芥子 @1812z | 参考甚至直接使用了其极为优秀的 UI 实现 |
+| [lsfTB](https://github.com/lsfdc233/lsfTB) — lsfdc233 | 参考并使用了其扫码相关UI |
+| [nzm-wiki](https://github.com/lostlightll/nzm-wiki) — 幻想延續@lostlightll | 逆战:未来最好的wiki，本项目使用了其仓库的资源  |
 
 液态玻璃底栏同样来自 Miuix example，源头是 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Apache-2.0）。
 
