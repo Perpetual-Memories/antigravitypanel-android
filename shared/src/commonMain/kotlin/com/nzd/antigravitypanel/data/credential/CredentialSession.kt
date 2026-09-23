@@ -10,13 +10,15 @@ import kotlinx.coroutines.flow.asStateFlow
  * 当前登录态。整个 app 只有一个实例，UI 直接观察 [cookie] / [ready]。
  *
  * 存的是用户粘贴的**原文**，不是解析后的字段——解析规则以后还会变（2026-09 就比
- * 早期源码多了 verifysession），存原文才能让老数据在新规则下重新解释。
+ * 早期源码多了 verifysession，2026-10 又加了微信区），存原文才能让老数据在新规则下
+ * 重新解释。微信区的 cookie 尤其依赖这一点：它的鉴权字段是一族 `ieg_ams_*`，
+ * 现在还没定死哪个才是服务端认的，原样存着才好换规则重试。
  */
 class CredentialSession(
     private val store: KeyValueStore,
 ) {
-    private val _cookie = MutableStateFlow<NzCookie?>(null)
-    val cookie: StateFlow<NzCookie?> = _cookie.asStateFlow()
+    private val _cookie = MutableStateFlow<MiniProgramCredential?>(null)
+    val cookie: StateFlow<MiniProgramCredential?> = _cookie.asStateFlow()
 
     /** 是否已完成首次读取。UI 要等它变成 true 才能决定弹不弹引导。 */
     private val _ready = MutableStateFlow(false)
@@ -36,7 +38,7 @@ class CredentialSession(
      *
      * @throws CookieParseException cookie 缺字段或格式不对
      */
-    suspend fun save(raw: String): NzCookie {
+    suspend fun save(raw: String): MiniProgramCredential {
         val parsed = parseNzCookie(raw)
         store.write(StoreKey.COOKIE_RAW, raw)
         _cookie.value = parsed

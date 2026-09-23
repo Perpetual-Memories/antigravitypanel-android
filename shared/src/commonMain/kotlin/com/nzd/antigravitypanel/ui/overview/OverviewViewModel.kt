@@ -1,6 +1,6 @@
 package com.nzd.antigravitypanel.ui.overview
 
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.remote.CookieExpiredException
 import com.nzd.antigravitypanel.data.remote.NzApi
@@ -119,7 +119,7 @@ class OverviewViewModel(
         _state.value = restored
     }
 
-    fun refresh(cookie: NzCookie?) {
+    fun refresh(cookie: MiniProgramCredential?) {
         if (cookie == null) {
             if (!importedJson.value) {
                 _state.value = _state.value.copy(

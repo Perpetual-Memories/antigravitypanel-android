@@ -20,7 +20,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.signin.SignInStatus
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
@@ -66,7 +66,7 @@ fun SignInScreen(
     xinyueViewModel: XinyueViewModel,
     autoClaimQqGift: Boolean,
     autoClaimXinyueGift: Boolean,
-    cookie: NzCookie?,
+    cookie: MiniProgramCredential?,
     onBack: () -> Unit,
     onAutoClaimQqGiftChange: (Boolean) -> Unit,
     onAutoClaimXinyueGiftChange: (Boolean) -> Unit,

@@ -1,5 +1,7 @@
 package com.nzd.antigravitypanel.data.qrlogin
 
+import com.nzd.antigravitypanel.data.credential.looksLikeMiniProgramCookie
+import com.nzd.antigravitypanel.data.credential.parseCookiePairs
 import com.nzd.antigravitypanel.data.credential.parseNzCookie
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -25,6 +27,8 @@ sealed interface QrLoginPayload {
      *
      * @param raw **可用来登录的那条 Cookie 串**。JSON 情况下取的是里面的 `cookie`
      *   字段而不是整段 JSON —— 输入框要回显给用户看，摆一坨 JSON 在那里没法用。
+     *   QQ 区与微信区都归这里，两者的字段不一样（微信区没有 `access_token`），
+     *   区分交给 [parseNzCookie]。
      * @param openid 给确认卡显示用。JSON 里带 `openid` 就直接用，没有再退回解析 Cookie。
      *   解析不出来是 null，但**不影响它仍然是 CookieText**：判定归属只看文本长什么样，
      *   不看能不能解析成功。
@@ -64,9 +68,10 @@ fun parseQrLoginPayload(text: String): QrLoginPayload {
         // 而那个串恰好以 { 开头，也不至于直接判成未知
     }
 
-    val lower = value.lowercase()
-    val looksLikeCookie = lower.contains("openid") && lower.contains("access_token")
-    if (looksLikeCookie) {
+    // 判据和真正解析时**共用同一个函数**（见 looksLikeMiniProgramCookie）：
+    // 以前这里写死 `openid && access_token`，微信区的 cookie 没有 access_token，
+    // 于是整条被判成"未知二维码"，连输入框都进不去。
+    if (looksLikeMiniProgramCookie(parseCookiePairs(value))) {
         val openid = runCatching { parseNzCookie(value).openid }.getOrNull()
         return QrLoginPayload.CookieText(raw = value, openid = openid)
     }

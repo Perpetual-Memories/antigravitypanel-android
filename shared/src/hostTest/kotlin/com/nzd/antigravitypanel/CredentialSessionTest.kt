@@ -63,7 +63,8 @@ class CredentialSessionTest {
         second.restore()
 
         assertEquals("0A1B2C3D4E5F6G7H8I9J", second.cookie.value?.openid)
-        assertEquals(NzCookie.REQUIRED_APPID, second.cookie.value?.appid)
+        // 存的是原文，恢复时按 acctype 重新分派：这条是 QQ 区的，appid 依旧被改写
+        assertEquals(NzCookie.REQUIRED_APPID, (second.cookie.value as NzCookie).appid)
     }
 
     @Test

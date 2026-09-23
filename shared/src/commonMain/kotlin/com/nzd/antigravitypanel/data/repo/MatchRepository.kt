@@ -1,7 +1,7 @@
 package com.nzd.antigravitypanel.data.repo
 
 import com.nzd.antigravitypanel.data.config.RemoteConfig
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.NzApi
@@ -35,7 +35,7 @@ class MatchRepository(
      * @param nowSec 当前时间，交给调用方注入以便测试 & 保证与保留期裁剪用同一个基准
      */
     suspend fun sync(
-        cookie: NzCookie,
+        cookie: MiniProgramCredential,
         nowSec: Long,
         retentionMonths: Int = MatchSyncer.DEFAULT_RETENTION_MONTHS,
     ): SyncResult {

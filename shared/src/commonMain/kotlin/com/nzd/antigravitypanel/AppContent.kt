@@ -44,7 +44,7 @@ import com.nzd.antigravitypanel.data.config.RemoteConfig
 import com.nzd.antigravitypanel.data.credential.CredentialSession
 import com.nzd.antigravitypanel.data.build.BuildPlan
 import com.nzd.antigravitypanel.data.build.BuildPlanStore
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.db.DatabaseProvider
 import com.nzd.antigravitypanel.data.imports.JsonImportState
 import com.nzd.antigravitypanel.data.imports.JsonMatchImporter
@@ -315,7 +315,7 @@ fun AppContent(
      *   手动刷新不该顺便把签到做了——那是"打开 app"那一下的事；但数字要跟着更新，
      *   否则看着像没刷。
      */
-    fun refreshAll(active: NzCookie?, autoSign: Boolean = false) {
+    fun refreshAll(active: MiniProgramCredential?, autoSign: Boolean = false) {
         if (active == null) {
             // 没凭证时也要刷一次概览：导入过 JSON 的话，状态卡要显示「已导入json」
             overviewViewModel.refresh(null)
@@ -790,7 +790,7 @@ private fun MainScreen(
     gameConfig: com.nzd.antigravitypanel.data.remote.dto.GameConfigDto,
     pinned: Set<String>,
     favorite: Set<String>,
-    cookie: NzCookie?,
+    cookie: MiniProgramCredential?,
     liquidGlassEnabled: Boolean,
     predictiveBackTranslation: Int,
     onRefresh: () -> Unit,

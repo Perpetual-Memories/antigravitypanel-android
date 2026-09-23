@@ -1,6 +1,6 @@
 package com.nzd.antigravitypanel.ui.home
 
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.remote.ApiException
 import com.nzd.antigravitypanel.data.remote.CookieExpiredException
 import com.nzd.antigravitypanel.data.remote.MissingCredentialException
@@ -51,7 +51,7 @@ class HomeViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    fun refresh(cookie: NzCookie?) {
+    fun refresh(cookie: MiniProgramCredential?) {
         if (cookie == null || _syncing.value) return
         scope.launch {
             _syncing.value = true

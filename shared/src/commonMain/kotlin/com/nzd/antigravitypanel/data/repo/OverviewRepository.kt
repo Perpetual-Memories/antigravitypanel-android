@@ -1,6 +1,6 @@
 package com.nzd.antigravitypanel.data.repo
 
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.NzApi
@@ -60,7 +60,7 @@ class OverviewRepository(
     private val api: NzApi,
     private val dao: MatchDao,
 ) {
-    suspend fun load(cookie: NzCookie, nowSec: Long): OverviewSnapshot {
+    suspend fun load(cookie: MiniProgramCredential, nowSec: Long): OverviewSnapshot {
         api.updateCookie(cookie)
         val stats = runCatching { api.userStats() }.getOrDefault(UserStatsDto())
         val recent = runCatching { loadRecentFive() }.getOrNull()
