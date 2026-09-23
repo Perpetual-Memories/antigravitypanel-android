@@ -1,6 +1,6 @@
 package com.nzd.antigravitypanel.ui.signin
 
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.signin.SignInCacheCodec
 import com.nzd.antigravitypanel.data.signin.SignInOutcome
@@ -77,7 +77,7 @@ class SignInViewModel(
      * 有凭证就拉看板，并且**今天还没自动签过就顺手签到**。
      * 没凭证就把卡片收起（清掉缓存），不要留着上一个号的签到状态。
      */
-    fun refresh(cookie: NzCookie?) {
+    fun refresh(cookie: MiniProgramCredential?) {
         if (cookie == null) {
             _state.value = SignInUiState()
             scope.launch { repository.clearCache() }
@@ -112,7 +112,7 @@ class SignInViewModel(
     }
 
     /** 手动签到。二级页那个按钮走这里，忽略"今天已自动试过"的标记。 */
-    fun signNow(cookie: NzCookie?) {
+    fun signNow(cookie: MiniProgramCredential?) {
         val active = cookie ?: return
         scope.launch {
             _state.value = _state.value.copy(signing = true, error = null)
@@ -144,7 +144,7 @@ class SignInViewModel(
      * 概览的下拉刷新也要带上这里：顶栏那个刷新按钮是"整页重拉"，
      * 只重刷概览却让签到卡继续显示旧数字，看着像刷新没生效。
      */
-    fun refreshBoardOnly(cookie: NzCookie?) {
+    fun refreshBoardOnly(cookie: MiniProgramCredential?) {
         if (cookie == null) return
         scope.launch {
             runCatching { repository.load(cookie) }

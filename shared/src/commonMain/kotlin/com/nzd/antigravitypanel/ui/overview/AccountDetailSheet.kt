@@ -20,7 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.ui.component.copyToClipboard
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.Button
@@ -44,7 +44,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 结构照官方 PC 端「系统设置 → 账号详细信息」那张卡：
  * 一段说明 → 一个 Cookie 输入框 → 一个只读的 ACCOUNT ID (OPENID) → 最下面一个退出登录。
  *
- * Cookie 输入框回显的是用户**粘贴的原文**（[NzCookie.raw]），不是解析后拼回去的串：
+ * Cookie 输入框回显的是用户**粘贴的原文**（[MiniProgramCredential.raw]），不是解析后拼回去的串：
  * 拼回去会漏掉我们不认识的键，也会把被改写的 appid 掺进去，用户复制出去就用不了了。
  *
  * 左右留白**不加**：miuix 的 `OverlayBottomSheet` 已经在内容区套了 `insideMargin`（横向 24dp），
@@ -60,7 +60,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun AccountDetailSheet(
     show: Boolean,
-    cookie: NzCookie?,
+    cookie: MiniProgramCredential?,
     saving: Boolean = false,
     error: String? = null,
     onSave: (String) -> Unit,

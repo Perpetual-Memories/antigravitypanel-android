@@ -3,7 +3,7 @@ package com.nzd.antigravitypanel.data.config
 import com.nzd.antigravitypanel.data.db.ConfigCacheDao
 import com.nzd.antigravitypanel.data.db.ConfigCacheEntity
 import com.nzd.antigravitypanel.data.db.ConfigCacheKey
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.remote.IdeJson
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
@@ -44,7 +44,7 @@ class GameConfigRepository(
      *   实测踩过：`AppContent` 里先 `configRepository.refresh()` 再 `overview.refresh(cookie)`，
      *   第一步永远失败，而 cookie 之后不再变化，就再也没有重试的机会了。
      */
-    suspend fun refresh(cookie: NzCookie): Result<GameConfigDto> = runCatching {
+    suspend fun refresh(cookie: MiniProgramCredential): Result<GameConfigDto> = runCatching {
         api.updateCookie(cookie)
         val fetched = api.gameConfig()
         _config.value = fetched

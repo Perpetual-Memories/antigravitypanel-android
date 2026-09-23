@@ -1,7 +1,7 @@
 package com.nzd.antigravitypanel.data.remote
 
 import com.nzd.antigravitypanel.data.config.RemoteConfig
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.remote.dto.CollectionHomeDto
 import com.nzd.antigravitypanel.data.remote.dto.CollectionListDto
 import com.nzd.antigravitypanel.data.remote.dto.ConfigListResponseDto
@@ -44,10 +44,10 @@ private val PROBE_MAP_MODE: String = GameMode.HUNT.serverMode
  */
 class NzApi(
     private val client: IdeClient = IdeClient(),
-    cookie: NzCookie? = null,
+    cookie: MiniProgramCredential? = null,
     config: RemoteConfig = RemoteConfig(),
 ) {
-    private var cookie: NzCookie? = cookie
+    private var cookie: MiniProgramCredential? = cookie
     private var config: RemoteConfig = config
 
     /**
@@ -58,7 +58,7 @@ class NzApi(
     private var resolvedSeason: Int? = null
 
     /** 换了凭证 / 远程配置都要让探测结果失效 —— 换号之后数据完全不同。 */
-    fun updateCookie(value: NzCookie) {
+    fun updateCookie(value: MiniProgramCredential) {
         cookie = value
         resolvedSeason = null
     }

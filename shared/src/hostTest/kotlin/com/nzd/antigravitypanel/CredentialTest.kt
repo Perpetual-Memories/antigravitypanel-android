@@ -2,6 +2,7 @@ package com.nzd.antigravitypanel
 
 import com.nzd.antigravitypanel.data.credential.CookieParseException
 import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.WechatMiniCredential
 import com.nzd.antigravitypanel.data.credential.parseNzCookie
 import com.nzd.antigravitypanel.util.percentDecoded
 import kotlin.test.Test
@@ -9,6 +10,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+
+/** 真实微信区 cookie 的字段构成（值已替换为等长假串，结构一个不少）。 */
+private const val WECHAT_COOKIE =
+    "openid=oVFkE7rHydhvBDUCk06Av0KjWdjk; acctype=mini; " +
+        "appid=wx4e8cbe4fb0eca54c; unionid=oVLDO63lgn0x_XsaOUBZy3Rsqa2Y; " +
+        "ieg_ams_token=dbd78ca864f727b8b9ca9bb89514f58d; ieg_ams_token_time=1788957117; " +
+        "ieg_ams_token_v2=ad5c1ca1dd722a66b48f8f687c001f80; " +
+        "ieg_ams_session_token=76ffdda2ebbd12cffbc1a8e7001f273c1dab7e66771ab825c1e51308c7a0b570ea89"
 
 class CredentialTest {
 
@@ -18,6 +27,7 @@ class CredentialTest {
             "openid=ABC123; acctype=qc; appid=1112451898; " +
                 "access_token=DEF456; verifysession=h018de"
         )
+        assertTrue(c is NzCookie)
         assertEquals("ABC123", c.openid)
         assertEquals("qc", c.acctype)
         assertEquals(NzCookie.REQUIRED_APPID, c.appid)
@@ -29,6 +39,7 @@ class CredentialTest {
     @Test
     fun appid不一致时改写并标记() {
         val c = parseNzCookie("openid=A; appid=999999; access_token=B")
+        assertTrue(c is NzCookie)
         assertEquals(NzCookie.REQUIRED_APPID, c.appid)
         assertEquals("999999", c.appidInCookie)
         assertTrue(c.appidReplaced)
@@ -39,6 +50,7 @@ class CredentialTest {
         val c = parseNzCookie(
             "Cookie: openid=A; acctype=qc; appid=1112451898; access_token=B; verifysession=C"
         )
+        assertTrue(c is NzCookie)
         assertEquals("A", c.openid)
         assertEquals("B", c.accessToken)
     }
@@ -62,6 +74,74 @@ class CredentialTest {
             "openid=A; acctype=qc; appid=1112451898; access_token=B; verifysession=C",
             header,
         )
+    }
+
+    // ---------------- 微信区 ----------------
+
+    @Test
+    fun 微信区没有access_token也能解析() {
+        val c = parseNzCookie(WECHAT_COOKIE)
+        assertTrue(c is WechatMiniCredential, "acctype=mini 应走微信区分支")
+        assertEquals("oVFkE7rHydhvBDUCk06Av0KjWdjk", c.openid)
+        assertEquals("ieg_ams_token_v2", c.tokenKey)
+        assertEquals("oVLDO63lgn0x_XsaOUBZy3Rsqa2Y", c.unionid)
+        assertEquals("wx4e8cbe4fb0eca54c", c.appid)
+    }
+
+    @Test
+    fun 微信区不改写appid() {
+        // 实测：把微信的 appid 换成 QQ 的 1112451898 之后，服务端从
+        // 「请先登录」(101) 改判成「访问人数太多」(-108)，说明 appid 确实参与鉴权。
+        // 无条件改写等于把这条 cookie 弄坏——这正是当初微信区登不上的原因之一。
+        val c = parseNzCookie(WECHAT_COOKIE)
+        assertFalse(c.asHeaderValue().contains(NzCookie.REQUIRED_APPID))
+        assertTrue(c.asHeaderValue().contains("appid=wx4e8cbe4fb0eca54c"))
+    }
+
+    @Test
+    fun 微信区原样转发整条cookie() {
+        // 这条是**回归的主要防线**：实测真正管用的鉴权字段是 ieg_ams_session_token
+        // （去掉它、或只留看起来更"正式"的 ieg_ams_token_v2，服务端都退回 101），
+        // 而且还有 token_v2 / session_token 这些我们没解析的别名。
+        // 只有原样转发能保证一个都不丢——重建请求头必然丢掉鉴权字段。
+        assertEquals(WECHAT_COOKIE, parseNzCookie(WECHAT_COOKIE).asHeaderValue())
+    }
+
+    @Test
+    fun 微信区认领时按顺序取第一个命中的token键() {
+        // tokenKey 只用于日志/排查。**别把它当成"服务端认的字段"**：
+        // 排第一的 ieg_ams_token_v2 实测过不了鉴权，真正的字段是 ieg_ams_session_token。
+        val onlyV1 = parseNzCookie("openid=A; acctype=mini; appid=wx1; ieg_ams_token=T1")
+        assertEquals("ieg_ams_token", (onlyV1 as WechatMiniCredential).tokenKey)
+
+        val all = parseNzCookie(
+            "openid=A; acctype=mini; appid=wx1; ieg_ams_session_token=T3; " +
+                "ieg_ams_token=T1; ieg_ams_token_v2=T2"
+        )
+        assertEquals("ieg_ams_token_v2", (all as WechatMiniCredential).tokenKey)
+    }
+
+    @Test
+    fun 微信区缺token仍要报错() {
+        val e = assertFailsWith<CookieParseException> {
+            parseNzCookie("openid=A; acctype=mini; appid=wx4e8cbe4fb0eca54c")
+        }
+        assertTrue(e.message!!.contains("微信"), "错误文案要指明是微信区的 token：${e.message}")
+    }
+
+    @Test
+    fun 没有acctype但appid是微信的也按微信区处理() {
+        // 有的抓包工具不会带上 acctype，靠 appid 兜底
+        val c = parseNzCookie("openid=A; appid=wx4e8cbe4fb0eca54c; ieg_ams_token=T")
+        assertTrue(c is WechatMiniCredential)
+    }
+
+    @Test
+    fun 没有acctype也没有微信appid时仍按QQ区处理() {
+        // 老行为不能变：QQ 区的 cookie 偶尔就是只有 openid + access_token
+        val c = parseNzCookie("openid=A; access_token=B")
+        assertTrue(c is NzCookie)
+        assertEquals(NzCookie.REQUIRED_APPID, (c as NzCookie).appid)
     }
 
     @Test

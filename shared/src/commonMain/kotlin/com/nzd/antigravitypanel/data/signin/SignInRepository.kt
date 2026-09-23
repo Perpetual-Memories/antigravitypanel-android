@@ -1,6 +1,6 @@
 package com.nzd.antigravitypanel.data.signin
 
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.store.KeyValueStore
 import com.nzd.antigravitypanel.data.store.StoreKey
@@ -35,7 +35,7 @@ class SignInRepository(
     private val store: KeyValueStore,
 ) {
     /** 拉看板。失败直接抛，由调用方决定显示什么。 */
-    suspend fun load(cookie: NzCookie): SignInStatus {
+    suspend fun load(cookie: MiniProgramCredential): SignInStatus {
         // 凭证默认挂在 api 单例上，但那是个"别人什么时候设过"的隐式前提。
         // 每个入口自己先设一遍，免得哪天调用顺序一变就拿到空凭证。
         api.updateCookie(cookie)
@@ -48,7 +48,7 @@ class SignInRepository(
      * 签完再拉一次看板：连续天数、累计天数是服务端算的，
      * 只用 do 返回的奖励拼一份 status 会缺掉这些数字。
      */
-    suspend fun sign(cookie: NzCookie): SignInOutcome {
+    suspend fun sign(cookie: MiniProgramCredential): SignInOutcome {
         api.updateCookie(cookie)
         val before = api.signInList().toSignInStatus()
         if (before.signedToday) return SignInOutcome.AlreadySigned(before)

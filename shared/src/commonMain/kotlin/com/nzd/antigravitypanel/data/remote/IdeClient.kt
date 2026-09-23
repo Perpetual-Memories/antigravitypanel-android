@@ -1,7 +1,7 @@
 package com.nzd.antigravitypanel.data.remote
 
 import com.nzd.antigravitypanel.data.config.RemoteConfig
-import com.nzd.antigravitypanel.data.credential.NzCookie
+import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -46,7 +46,7 @@ class IdeClient(
     suspend fun fetchPayload(
         method: IdeMethod,
         param: JsonObject,
-        cookie: NzCookie,
+        cookie: MiniProgramCredential,
         config: RemoteConfig,
     ): JsonElement {
         val text = try {
@@ -89,7 +89,7 @@ class IdeClient(
     suspend fun <T> postIde(
         method: IdeMethod,
         param: JsonObject,
-        cookie: NzCookie,
+        cookie: MiniProgramCredential,
         config: RemoteConfig,
         deserializer: DeserializationStrategy<T>,
     ): T = json.decodeFromJsonElement(deserializer, fetchPayload(method, param, cookie, config))
@@ -101,7 +101,7 @@ class IdeClient(
     suspend inline fun <reified T> postIde(
         method: IdeMethod,
         param: JsonObject,
-        cookie: NzCookie,
+        cookie: MiniProgramCredential,
         config: RemoteConfig,
     ): T {
         val strategy: KSerializer<T> = serializer()
