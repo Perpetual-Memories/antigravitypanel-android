@@ -111,6 +111,37 @@ enum class IdeMethod(
      * 先走 [SignInList] 看 `isSignIn`，没签才打。
      */
     SignInDo("/api/signin/do", IdePage.Welfare, IdeChart.Welfare),
+
+    /**
+     * 积分余额。param 是空对象。
+     *
+     * 当前积分总数在 `tasks[].scoreList[].totalScore` —— 每一个可兑换项里都带一份
+     * （同一个积分账户，值相同），取最大的那份。福利站页顶那串数字就是这个接口，
+     * 领完任务奖励后它会立刻涨，所以领完要再拉一次。
+     */
+    ScoreRedeemList("/api/score/redeem/list", IdePage.Welfare, IdeChart.Welfare),
+
+    /**
+     * 任务中心的任务清单。param 抓包里是 `{"isWechat":true}`。
+     *
+     * 响应按 group 分组，一个任务带 `taskinfo`（名字）、`taskdata`（进度 / 是否完成 /
+     * 是否已领）与 `taskdata.ext.period`（`day` / `week` / `month` / `long`）。
+     *
+     * `period` 是区分"该不该自动领"的唯一凭据：**只认 `day` 和 `week`**。
+     * 同一个活动里还挂着「订阅小程序」「添加企微」这类 `long` 任务和
+     * 「累登N天」这类 `month` 任务，它们的奖励不是"每天该领的东西"，
+     * 按名字去匹配迟早会在官方改名后领错或漏领。
+     */
+    TaskLabel("/api/task/label", IdePage.Welfare, IdeChart.Welfare),
+
+    /**
+     * 领取任务奖励。param 是 `{"groupID":..,"taskID":..,"isWechat":true}`。
+     *
+     * 只对 `taskdata.isfinished == true 且 isawarded == false` 的任务发：
+     * 没达成就发会怎样服务端没明说，别赌。
+     * 响应里 `res[].Ret == 0` 才算领到，`H.amsmsg` 是"恭喜您获得了礼包： 500积分 "。
+     */
+    TaskReward("/api/task/reward", IdePage.Welfare, IdeChart.Welfare),
 }
 
 /** 图鉴分类 → method。图鉴页要按分类切换，用枚举比散着传字符串好维护。 */

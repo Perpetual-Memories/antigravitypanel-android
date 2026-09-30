@@ -119,6 +119,7 @@ fun MapDistributionScreen(
     val dropError by viewModel.dropError.collectAsState()
     val officialLoaded by viewModel.officialLoaded.collectAsState()
     val officialError by viewModel.officialError.collectAsState()
+    val seasonSelection by viewModel.seasonSelection.collectAsState()
     val flipped = remember { mutableStateSetOf<Int>() }
 
     // 掉落物一次全拉回来。卡片正面要显示「核心收集进度 x / y」，
@@ -140,8 +141,10 @@ fun MapDistributionScreen(
             .toList()
     }
 
-    // 全是 0 场：本地库还是空的，先说一句，比让用户对着九张 0 猜好
-    val blank = sections.all { section -> section.entries.all { it.total == 0 } }
+    // 全是 0 场：本地库还是空的，先说一句，比让用户对着九张 0 猜好。
+    // ⚠️ 空列表时 all{} 也返回 true，所以得先判非空 —— 一季都没勾时列表正是空的，
+    // 那不是"一张都没打过"，是筛选把内容全筛没了。
+    val blank = sections.isNotEmpty() && sections.all { section -> section.entries.all { it.total == 0 } }
 
     LazyColumn(
         modifier = modifier
@@ -175,6 +178,19 @@ fun MapDistributionScreen(
                 HintBlock(
                     text = officialError?.let { "官方统计没拿到：$it\n下面是本地场次，仅供参考" }
                         ?: "正在获取官方统计…",
+                )
+            }
+        }
+
+        // 一季都没勾（或没数据）：空列表比一句提示更难懂，用户只会以为"又卡了"
+        if (sections.isEmpty()) {
+            item(key = "season-empty") {
+                HintBlock(
+                    text = if (seasonSelection?.isEmpty() == true) {
+                        "所有赛季都取消了，点右上角图标至少勾一个"
+                    } else {
+                        "这个模式还没有地图"
+                    },
                 )
             }
         }

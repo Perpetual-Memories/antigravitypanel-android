@@ -60,6 +60,16 @@ object StoreKey {
     const val FAVORITE_ROOMS = "favorite_rooms"
 
     /**
+     * 地图分布页「按赛季筛选」——**猎场**勾了哪几个赛季，逗号分隔的 key（`S0`…）。
+     * 猎场和塔防各存一份（要能分别筛），见 `data.settings.MapSeasonFilter`。
+     * 不存在 = 从没设过 = 全选。
+     */
+    const val MAP_SEASON_FILTER_HUNT = "map_season_filter_hunt"
+
+    /** 同上，塔防那份。 */
+    const val MAP_SEASON_FILTER_TOWER = "map_season_filter_tower"
+
+    /**
      * 最近一次 JSON 导入的摘要文案，同时兼作"有没有导入过"的标志位。
      * 存文案而不是布尔 + 数字：设置页要显示它，概览页只要判断它在不在。
      */
@@ -84,6 +94,31 @@ object StoreKey {
      * 同一天同一个号只自动试一次，登出时和 [SIGNIN_CACHE] 一起清掉。
      */
     const val SIGNIN_AUTO_MARK = "signin_auto_mark"
+
+    /**
+     * 「打开APP自动签到」开关。**只有 "0" 才是关**——默认开，
+     * 见 [com.nzd.antigravitypanel.data.settings.UserSettings.setAutoSignIn]。
+     */
+    const val SIGNIN_AUTO = "signin_auto"
+
+    /**
+     * 「打开APP自动领取任务中心奖励」开关。**只有 "0" 才是关**——默认开。
+     *
+     * 和游戏中心那个默认关不一样，理由同样是接口性质：任务中心这个领取接口
+     * **一次只领传进去的那一个任务**（`groupID + taskID`），而游戏中心的
+     * `exchange-all-gifts` 是批量的。前者等价于"每天领一次该领的东西"。
+     */
+    const val WELFARE_TASK_AUTO_CLAIM = "welfare_task_auto_claim"
+
+    /**
+     * 任务中心自动领取的去重标记，值形如 `20260929|openid|65928,65929`。
+     *
+     * 前两段是「日期|openid」，和 [SIGNIN_AUTO_MARK] 一个套路；末尾是这一天
+     * **已经领过**的 taskId 集合。之所以要记到任务粒度：每日任务和每周任务
+     * 不是同时达成的——早上只领到每日那一个，晚上每周那个达成时必须还能再领一次，
+     * 按天整段去重会把第二次吞掉。
+     */
+    const val WELFARE_TASK_AUTO_MARK = "welfare_task_auto_mark"
 
     /**
      * QQ（含 TIM）登录 cookie 原文，**和 [COOKIE_RAW] 是两套凭证**。
@@ -121,6 +156,9 @@ object StoreKey {
      * 见 [com.nzd.antigravitypanel.data.settings.UserSettings.setAutoClaimXinyueGift]。
      */
     const val XINYUE_AUTO_CLAIM = "xinyue_auto_claim"
+
+    /** 「概览页顶栏显示账号信息」开关。**只有 "0" 才是关**——默认开。 */
+    const val TOP_BAR_ACCOUNT = "top_bar_account"
 
     /**
      * Build 计划（[com.nzd.antigravitypanel.data.build.BuildPlan] 的 JSON）。

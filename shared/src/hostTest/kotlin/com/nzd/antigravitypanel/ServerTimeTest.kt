@@ -2,6 +2,7 @@ package com.nzd.antigravitypanel
 
 import com.nzd.antigravitypanel.util.minusCalendarMonths
 import com.nzd.antigravitypanel.util.parseServerTime
+import com.nzd.antigravitypanel.util.secondsUntilNextServerDayAt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -60,5 +61,25 @@ class ServerTimeTest {
         val mar31 = parseServerTime("2026-03-31 12:00:00")!!
         val feb28 = parseServerTime("2026-02-28 12:00:00")!!
         assertEquals(feb28, minusCalendarMonths(mar31, 1))
+    }
+
+    @Test
+    fun 过了当天的刷新点就顺延到第二天() {
+        // 05:00 之前：目标是当天那个点
+        assertEquals(7200L, secondsUntilNextServerDayAt(parseServerTime("2026-09-04 03:00:00")!!, 5))
+        // 05:00 之后（22:15:16 → 次日 05:00）：6 小时 44 分 44 秒
+        assertEquals(24284L, secondsUntilNextServerDayAt(parseServerTime("2026-09-04 22:15:16")!!, 5))
+        // 05:00 之后 1 秒也要顺延一整天
+        assertEquals(86399L, secondsUntilNextServerDayAt(parseServerTime("2026-09-04 05:00:01")!!, 5))
+        // 正好落在点上：归零会让它显得已经刷新了，所以给一整天
+        assertEquals(86400L, secondsUntilNextServerDayAt(parseServerTime("2026-09-04 05:00:00")!!, 5))
+    }
+
+    @Test
+    fun 刷新点按北京时间算而不是UTC() {
+        // 北京时间 09-05 00:30 = UTC 09-04 16:30；按 UTC 切日期会得到"今天还有 5 点"那个点，
+        // 但服务端那边已经是新的一天，下一个 05:00 只剩 4 小时 30 分
+        val now = parseServerTime("2026-09-05 00:30:00")!!
+        assertEquals(4 * 3600L + 30 * 60L, secondsUntilNextServerDayAt(now, 5))
     }
 }

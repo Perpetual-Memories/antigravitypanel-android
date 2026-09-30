@@ -107,6 +107,29 @@ const val ACCTYPE_QQ = "qc"
  */
 private const val WECHAT_APPID_PREFIX = "wx"
 
+/** QQ 分区的展示名。 */
+const val PARTITION_QQ = "QQ区"
+
+/** 微信分区的展示名。 */
+const val PARTITION_WECHAT = "微信区"
+
+/**
+ * 账号在哪个分区：**QQ 区 / 微信区**，判据就是凭证类型本身 ——
+ * [parseNzCookie] 已经把 `acctype=mini` 和 `wx` 开头的 appid 都认成 [WechatMiniCredential]，
+ * 这里不用再解一遍 cookie 原文，两边也不会给出不一样的结果。
+ *
+ * 官方不下发"分区"这个名词的数据：服务端只知道一个 openid 属于哪套鉴权体系，
+ * 展示层面的叫法是我们自己定的。**新增第三种凭证时必须回来补这里**，
+ * 否则会用 [PARTITION_QQ] 的名字去描述一个不是 QQ 区的账号。
+ *
+ * @return 没有凭证时返回空串（而不是 "QQ区"）——"不知道"和"知道是 QQ 区"是两回事。
+ */
+fun partitionLabelOf(credential: MiniProgramCredential?): String = when (credential) {
+    is WechatMiniCredential -> PARTITION_WECHAT
+    is NzCookie -> PARTITION_QQ
+    null -> ""
+}
+
 class CookieParseException(message: String) : Exception(message)
 
 /** 把 `k=v; k2=v2` 拆成 map，键统一小写。整条 `Cookie:` 请求头也能吃下。 */

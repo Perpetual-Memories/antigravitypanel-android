@@ -14,8 +14,11 @@ import com.nzd.antigravitypanel.data.remote.dto.MapDropDto
 import com.nzd.antigravitypanel.data.remote.dto.MapItemListDto
 import com.nzd.antigravitypanel.data.remote.dto.MapStatsDto
 import com.nzd.antigravitypanel.data.remote.dto.RawConfigDto
+import com.nzd.antigravitypanel.data.remote.dto.ScoreRedeemListDto
 import com.nzd.antigravitypanel.data.remote.dto.SignInDoDto
 import com.nzd.antigravitypanel.data.remote.dto.SignInListDto
+import com.nzd.antigravitypanel.data.remote.dto.TaskLabelDto
+import com.nzd.antigravitypanel.data.remote.dto.TaskRewardDto
 import com.nzd.antigravitypanel.data.remote.dto.ThreadSearchDto
 import com.nzd.antigravitypanel.data.remote.dto.UserDayDto
 import com.nzd.antigravitypanel.data.remote.dto.UserInfoDto
@@ -67,6 +70,14 @@ class NzApi(
         config = value
         resolvedSeason = null
     }
+
+    /**
+     * 现在有没有凭证。
+     *
+     * 给"要不要发请求"这种判断用：没凭证时请求一定失败（[call] 直接抛
+     * [MissingCredentialException]），与其发一堆注定失败的请求，不如先问一句。
+     */
+    fun hasCookie(): Boolean = cookie != null
 
     // ---------------- 战绩 ----------------
 
@@ -184,6 +195,24 @@ class NzApi(
      * 抓包里小程序也是先 list 再 do，照它的顺序来。
      */
     suspend fun signInDo(): SignInDoDto = call(IdeMethod.SignInDo, "groupID" to 0)
+
+    /**
+     * 积分余额。福利站页顶那串数字就是这个接口的 `tasks[].scoreList[].totalScore`。
+     * 领完任务奖励它会立刻涨，所以领完要再拉一次。
+     */
+    suspend fun scoreRedeemList(): ScoreRedeemListDto = call(IdeMethod.ScoreRedeemList)
+
+    /**
+     * 任务中心的任务清单。`isWechat` 抓包里恒为 true，原样带上。
+     */
+    suspend fun taskLabel(): TaskLabelDto = call(IdeMethod.TaskLabel, "isWechat" to true)
+
+    /**
+     * 领一个任务的奖励。**调用方必须先拿 [taskLabel] 确认这个任务
+     * `isfinished == true 且 isawarded == false`**——没达成就发会怎样服务端没明说。
+     */
+    suspend fun taskReward(groupID: Int, taskID: Int): TaskRewardDto =
+        call(IdeMethod.TaskReward, "groupID" to groupID, "taskID" to taskID, "isWechat" to true)
 
     // ---------------- 内部 ----------------
 

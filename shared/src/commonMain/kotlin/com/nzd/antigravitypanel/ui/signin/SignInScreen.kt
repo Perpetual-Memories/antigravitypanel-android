@@ -4,15 +4,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,6 +48,7 @@ import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /**
@@ -53,9 +58,9 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * → `BarBackdropContent` → `PullToRefresh` → `LazyColumn`。
  *
  * 三块签到各占一组（`SmallTitle` + `Card`）：小程序活动中心签到 / QQ游戏中心周签到礼包 /
- * 悦享卡每日礼包。后两块的**凭证和开关收在卡片点开的弹层里**，页面上只留状态与数字。
+ * 悦享卡每日礼包。**三块的开关都收在各自卡片点开的弹层里**，页面上只留状态与数字。
  *
- * 手动签到按钮放在这里而不是卡片上：绝大多数情况下打开 app 那一下就自动签掉了，
+ * 手动签到按钮放在这里而不是概览那张卡上：绝大多数情况下打开 app 那一下就自动签掉了，
  * 卡片上的按钮反而是个误导（点了也是"今天已经签到过了"）。只有自动签到因为网络
  * 失败漏掉时，用户才需要来这里补一下。
  */
@@ -64,10 +69,14 @@ fun SignInScreen(
     viewModel: SignInViewModel,
     qqViewModel: QqGiftViewModel,
     xinyueViewModel: XinyueViewModel,
+    autoSign: Boolean,
+    autoClaimTask: Boolean,
     autoClaimQqGift: Boolean,
     autoClaimXinyueGift: Boolean,
     cookie: MiniProgramCredential?,
     onBack: () -> Unit,
+    onAutoSignChange: (Boolean) -> Unit,
+    onAutoClaimTaskChange: (Boolean) -> Unit,
     onAutoClaimQqGiftChange: (Boolean) -> Unit,
     onAutoClaimXinyueGiftChange: (Boolean) -> Unit,
     liquidGlassEnabled: Boolean = true,
@@ -78,6 +87,7 @@ fun SignInScreen(
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior()
     val pullToRefreshState = rememberPullToRefreshState()
+    var welfareSheet by remember { mutableStateOf(false) }
 
     BarBlurHost(enabled = liquidGlassEnabled) {
         Scaffold(
@@ -142,7 +152,9 @@ fun SignInScreen(
                                 loading = state.loading,
                                 signing = state.signing,
                                 hasCookie = cookie != null,
+                                notice = state.notice,
                                 onSign = { viewModel.signNow(cookie) },
+                                onOpenSettings = { welfareSheet = true },
                             )
                         }
 
@@ -185,6 +197,9 @@ fun SignInScreen(
                                 onClearCredential = {
                                     scope.launch { qqViewModel.clearCredential() }
                                 },
+                                onImportHar = { text ->
+                                    scope.launch { qqViewModel.importFromHar(text) }
+                                },
                                 onConsumeNotice = qqViewModel::consumeNotice,
                             )
                         }
@@ -210,6 +225,9 @@ fun SignInScreen(
                                 onClearCredential = {
                                     scope.launch { xinyueViewModel.clearCredential() }
                                 },
+                                onImportHar = { text ->
+                                    scope.launch { xinyueViewModel.importFromHar(text) }
+                                },
                                 onConsumeNotice = xinyueViewModel::consumeNotice,
                             )
                         }
@@ -219,10 +237,19 @@ fun SignInScreen(
             }
         }
     }
+
+    WelfareAutoSheet(
+        show = welfareSheet,
+        autoSign = autoSign,
+        autoClaimTask = autoClaimTask,
+        onAutoSignChange = { scope.launch { onAutoSignChange(it) } },
+        onAutoClaimTaskChange = { scope.launch { onAutoClaimTaskChange(it) } },
+        onDismiss = { welfareSheet = false },
+    )
 }
 
 /**
- * 「小程序活动中心签到」那张卡。
+ * 「小程序活动中心签到」那张卡。点它打开「自动签到 / 自动领任务奖励」的弹层。
  *
  * 标题和四格指标**合并在一张卡里**：原来标题一张、指标一张，中间那道缝让人以为是
  * 两个互不相干的东西，而且两块卡各自的 16dp 内边距在接缝处堆出 32dp，看着像多空了一行。
@@ -237,11 +264,15 @@ private fun TodayCard(
     loading: Boolean,
     signing: Boolean,
     hasCookie: Boolean,
+    notice: String?,
     onSign: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceContainer),
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = onOpenSettings,
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -261,6 +292,18 @@ private fun TodayCard(
                         MiuixTheme.colorScheme.onSurface
                     },
                 )
+                // 当前积分总数。和「今天已签到」同一行、靠右、**黑体加粗**：
+                // 它是这块唯一一个"越攒越多"的数，配得上和状态同级的视觉重量。
+                // 拿不到（null）就整块不摆——显示一个 0 会被读成"一分没有"。
+                if (status.totalScore != null) {
+                    Text(
+                        text = "${status.totalScore} 积分",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                }
                 if (signing) {
                     CircularProgressIndicator(
                         progress = null,
@@ -272,6 +315,17 @@ private fun TodayCard(
                         ),
                     )
                 }
+            }
+
+            // 自动领到东西了说一句：这件事没有按钮也没有入口，全是开 app 那一下做的，
+            // 不说的话用户只看到积分涨了，不知道是从哪来的。
+            if (notice != null) {
+                Text(
+                    text = notice,
+                    modifier = Modifier.padding(top = 6.dp),
+                    fontSize = 13.sp,
+                    color = signInAccentColor(),
+                )
             }
 
             if (available && status.date.isNotBlank()) {

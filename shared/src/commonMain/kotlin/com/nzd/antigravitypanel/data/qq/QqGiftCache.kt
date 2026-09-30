@@ -1,5 +1,7 @@
 package com.nzd.antigravitypanel.data.qq
 
+import com.nzd.antigravitypanel.util.currentEpochSeconds
+import com.nzd.antigravitypanel.util.serverDateKey
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -43,8 +45,15 @@ fun QqWeeklySignIn.toCache(nowSec: Long): QqGiftCache = QqGiftCache(
     savedAtSec = nowSec,
 )
 
-/** 缓存 → 展示模型。`canClaim` 恒为 false：没有拉到新数据之前不声称"可以领"。 */
-fun QqGiftCache.toStatus(): QqWeeklySignIn = QqWeeklySignIn(
+/**
+ * 缓存 → 展示模型。`canClaim` 恒为 false：没有拉到新数据之前不声称"可以领"。
+ *
+ * @param nowSec 用来判跨天。缓存自己带着 [QqGiftCache.savedAtSec]，
+ *   存的那天和今天不是同一天就把 [QqWeeklySignIn.stale] 置起来——
+ *   周签到是按周走的，隔天的旧数字不能当今天的结论用。
+ *   默认取当前时间，调用方一般不用传。
+ */
+fun QqGiftCache.toStatus(nowSec: Long = currentEpochSeconds()): QqWeeklySignIn = QqWeeklySignIn(
     day = day,
     totalDays = totalDays,
     canClaim = false,
@@ -52,4 +61,5 @@ fun QqGiftCache.toStatus(): QqWeeklySignIn = QqWeeklySignIn(
     nextReward = nextReward,
     fullWeekBonus = fullWeekBonus,
     roleName = roleName,
+    stale = savedAtSec > 0 && serverDateKey(savedAtSec) != serverDateKey(nowSec),
 )

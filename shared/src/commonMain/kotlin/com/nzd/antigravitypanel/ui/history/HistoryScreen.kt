@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
+import com.nzd.antigravitypanel.domain.MatchTag
 import com.nzd.antigravitypanel.domain.difficultyNameOf
 import com.nzd.antigravitypanel.domain.mapNameOf
 import com.nzd.antigravitypanel.domain.modeOf
@@ -79,6 +80,8 @@ fun HistoryScreen(
     val items by viewModel.items.collectAsState()
     val hasMore by viewModel.hasMore.collectAsState()
     val filter by viewModel.filter.collectAsState()
+    // 实力局 / 带飞局。没有 Boss 口径缓存的局不在 map 里，那一行就不画角标
+    val tags by viewModel.tags.collectAsState()
     val listState = rememberLazyListState()
     var longPressed by remember { mutableStateOf<MatchEntity?>(null) }
 
@@ -120,6 +123,7 @@ fun HistoryScreen(
             MatchRow(
                 match = match,
                 config = config,
+                tag = tags[match.roomId],
                 pinned = match.roomId in pinned,
                 favorite = match.roomId in favorite,
                 // 菜单挂在这一行内部：弹窗的锚点取的是它所在的那块布局，
@@ -172,6 +176,7 @@ private val MvpBadgeRed = Color(0xFFE23C3C)
 private fun MatchRow(
     match: MatchEntity,
     config: GameConfigDto,
+    tag: MatchTag?,
     pinned: Boolean,
     favorite: Boolean,
     menuExpanded: Boolean,
@@ -258,6 +263,12 @@ private fun MatchRow(
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
+                // 实力局 / 带飞局：和结果词同一行、紧跟在模式后面。
+                // 放这一行是因为它们和 MVP 一样是"这局打得怎么样"的结论，
+                // 摆到底部那行时间旁边会被当成又一个统计数字。
+                if (tag != null) {
+                    MatchTagBadge(tag = tag, modifier = Modifier.padding(start = 6.dp))
+                }
                 Box(modifier = Modifier.weight(1f))
                 if (pinned) {
                     Icon(
@@ -315,6 +326,47 @@ private fun MatchRow(
                 )
             }
         }
+    }
+}
+
+/**
+ * 实力局：黄底棕字。
+ *
+ * 写死不跟主题（和 [MvpBadgeRed] 一个道理）：这是"荣誉标记"不是状态色，
+ * 而且底色要够亮才像标签，主题色在深色模式下压不住文字。
+ * 棕字而不是黑字：纯黑压在饱和的黄上会有摩尔纹似的边缘。
+ */
+private val StrongBg = Color(0xFFFFD54A)
+private val StrongText = Color(0xFF5C3A05)
+
+/** 带飞局：紫底白字。紫色比实力局那档更"高一档"，白字在它上面对比度也够。 */
+private val CarryBg = Color(0xFF7C4DFF)
+private val CarryText = Color.White
+
+/**
+ * 实力局 / 带飞局角标。
+ *
+ * 和 MVP 角标同一套写法（[CircleShape] 裁出胶囊），区别只在配色 —— 三个角标
+ * 并排出现时形状一致才不会显得是三种不同的东西。
+ */
+@Composable
+private fun MatchTagBadge(
+    tag: MatchTag,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(if (tag == MatchTag.CARRY) CarryBg else StrongBg)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = tag.label,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (tag == MatchTag.CARRY) CarryText else StrongText,
+        )
     }
 }
 

@@ -1,9 +1,13 @@
 package com.nzd.antigravitypanel
 
+import com.nzd.antigravitypanel.data.db.MatchBossStatDao
+import com.nzd.antigravitypanel.data.db.MatchBossStatEntity
 import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.db.MatchKnownRow
+import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
+import com.nzd.antigravitypanel.data.repo.MatchBossStats
 import com.nzd.antigravitypanel.data.settings.MatchMarks
 import com.nzd.antigravitypanel.data.store.KeyValueStore
 import com.nzd.antigravitypanel.domain.GameMode
@@ -62,6 +66,18 @@ class HistoryPagingTest {
         override suspend fun clear() = Unit
     }
 
+    /**
+     * Boss 口径缓存的替身。翻页这些断言跟它没关系，但 VM 的 init 会去读它，
+     * 给个空的就行 —— 顺带把 `hasCookie() == false` 那条路也走通（不会真发请求）。
+     */
+    private class FakeBossStatDao : MatchBossStatDao {
+        override suspend fun upsert(item: MatchBossStatEntity) = Unit
+        override fun observeAll(): Flow<List<MatchBossStatEntity>> = emptyFlow()
+        override suspend fun knownRoomIds(): List<String> = emptyList()
+        override suspend fun deleteOrphans(): Int = 0
+        override suspend fun clear() = Unit
+    }
+
     private fun match(index: Int) = MatchEntity(
         roomId = "room-$index",
         openId = "open",
@@ -114,6 +130,7 @@ class HistoryPagingTest {
             FakeDao((0 until total).map { match(it) }),
             MatchMarks(FakeStore()),
             MutableStateFlow(GameConfigDto()),
+            MatchBossStats(NzApi(), FakeBossStatDao()),
         )
         val scope = vm.warmUp()
         try {

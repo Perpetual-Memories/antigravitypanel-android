@@ -9,14 +9,18 @@ import com.nzd.antigravitypanel.data.remote.CookieExpiredException
 import com.nzd.antigravitypanel.data.remote.MissingCredentialException
 import com.nzd.antigravitypanel.data.remote.ProtocolException
 import com.nzd.antigravitypanel.data.remote.dto.MapStatsDto
+import com.nzd.antigravitypanel.data.settings.MapSeasonFilter
 import com.nzd.antigravitypanel.domain.COUNTABLE_MODES
 import com.nzd.antigravitypanel.domain.GameMode
 import com.nzd.antigravitypanel.domain.MapSection
+import com.nzd.antigravitypanel.domain.MapSeason
 import com.nzd.antigravitypanel.domain.MapStatEntry
 import com.nzd.antigravitypanel.domain.aggregateByMap
 import com.nzd.antigravitypanel.domain.buildOfficialMapStats
 import com.nzd.antigravitypanel.domain.groupMapsBySeason
+import com.nzd.antigravitypanel.domain.hasSeasonFilter
 import com.nzd.antigravitypanel.domain.mergeMapStats
+import com.nzd.antigravitypanel.domain.seasonOrderOf
 import com.nzd.antigravitypanel.domain.serverMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +30,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -66,11 +71,41 @@ class MapDistributionViewModel(
     private val api: NzApi,
     dao: MatchDao,
     private val config: StateFlow<GameConfigDto>,
+    /**
+     * 赛季筛选的勾选（猎场 / 塔防各一份）。
+     *
+     * 和 `MatchMarks` 一样是纯 UI 偏好，不进对局表。
+     */
+    private val seasonFilter: MapSeasonFilter,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _mode = MutableStateFlow(GameMode.HUNT)
     val mode: StateFlow<GameMode> = _mode.asStateFlow()
+
+    /**
+     * 当前模式有哪些赛季可选。空列表 = 这个模式没有赛季划分（时空追猎），
+     * UI 那边就不该摆筛选入口。
+     */
+    val seasonOptions: StateFlow<List<MapSeason>> = _mode
+        .map { seasonOrderOf(it) }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), seasonOrderOf(GameMode.HUNT))
+
+    /**
+     * 当前模式勾了哪些赛季。**null = 全选**（包括"从没设过"和"没有赛季表"两种）。
+     */
+    val seasonSelection: StateFlow<Set<String>?> = combine(
+        _mode,
+        seasonFilter.selected,
+    ) { mode, all -> all[mode] }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 当前模式能不能按赛季筛。时空追猎没有赛季表，入口要整个藏起来。 */
+    fun canFilterBySeason(mode: GameMode = _mode.value): Boolean = hasSeasonFilter(mode)
+
+    fun toggleSeason(key: String) {
+        scope.launch { seasonFilter.toggle(_mode.value, key) }
+    }
 
     private val allMatches = dao.observeAll()
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -130,10 +165,14 @@ class MapDistributionViewModel(
             mergeMapStats(official, local, stats.mapTo(mutableSetOf()) { it.map_id })
         }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 分好节的卡片列表：猎场按赛季，其余按模式，没打过的地图补 0 场。 */
+    /**
+     * 分好节的卡片列表：猎场 / 塔防按赛季，其余按模式，没打过的地图补 0 场。
+     *
+     * 赛季筛选跟着当前模式走 —— 猎场和塔防各存一份勾选，切 Tab 时各读各的。
+     */
     val sections: StateFlow<List<MapSection>> =
-        combine(entries, config, _mode) { list, cfg, mode ->
-            groupMapsBySeason(mode, list, cfg)
+        combine(entries, config, _mode, seasonSelection) { list, cfg, mode, seasons ->
+            groupMapsBySeason(mode, list, cfg, seasons)
         }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _drops = MutableStateFlow<Map<Int, List<MapItemDto>>>(emptyMap())
@@ -154,6 +193,8 @@ class MapDistributionViewModel(
     private var loadingDrops = false
 
     init {
+        // 勾选是存在加密存储里的，读出来之前 UI 那边一律当"全选"
+        scope.launch { seasonFilter.restore() }
         // 配置是官方统计的必要输入（地图表 + 每个副本对应的难度）。
         // 页面开在配置到位之前的话，第一次请求白跑；这里等配置一到就补一次。
         // 用户先导入 JSON、之后才粘 cookie 的场景走的也是这条路。

@@ -9,20 +9,34 @@ import com.nzd.antigravitypanel.data.remote.ProtocolException
 import com.nzd.antigravitypanel.data.remote.dto.SignInDoDto
 import com.nzd.antigravitypanel.data.remote.dto.SignInListDto
 import com.nzd.antigravitypanel.data.remote.unwrapIdeResponse
+import com.nzd.antigravitypanel.data.remote.dto.ScoreRedeemListDto
+import com.nzd.antigravitypanel.data.remote.dto.TaskLabelDto
+import com.nzd.antigravitypanel.data.remote.dto.TaskRewardDto
+import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.data.signin.SignInCache
 import com.nzd.antigravitypanel.data.signin.SignInCacheCodec
 import com.nzd.antigravitypanel.data.signin.SignInStatus
+import com.nzd.antigravitypanel.data.signin.WelfareTaskState
+import com.nzd.antigravitypanel.data.signin.claimableTasks
+import com.nzd.antigravitypanel.data.signin.dailyTask
 import com.nzd.antigravitypanel.data.signin.rewardText
 import com.nzd.antigravitypanel.data.signin.toCache
 import com.nzd.antigravitypanel.data.signin.toSignInStatus
 import com.nzd.antigravitypanel.data.signin.toStatus
+import com.nzd.antigravitypanel.data.signin.totalScore
+import com.nzd.antigravitypanel.data.store.KeyValueStore
+import com.nzd.antigravitypanel.data.store.StoreKey
+import com.nzd.antigravitypanel.ui.signin.dailyTaskStateText
+import com.nzd.antigravitypanel.ui.signin.signInSummaryText
 import com.nzd.antigravitypanel.util.serverDateKey
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -204,6 +218,175 @@ class SignInTest {
         assertEquals("20260920", serverDateKey(1789919999L))
         assertEquals("20260921", serverDateKey(1789920000L))
     }
+
+    // ---------------- 积分余额 ----------------
+
+    @Test
+    fun 积分总数取scoreList里的totalScore() {
+        assertEquals(7800, scoreRedeemListOf(WelfareFixtures.RESPONSE_SCORE_REDEEM_LIST).totalScore())
+    }
+
+    @Test
+    fun 一个积分项都没有时积分是null而不是0() {
+        // 0 会被 UI 显示成"一分没有"，那是另一件事
+        val empty = """{"ret":0,"iRet":0,"jData":{"welfareStationData":{"code":0,"data":{"actID":3472,"tasks":[]},"message":""}}}"""
+        assertNull(scoreRedeemListOf(empty).totalScore())
+    }
+
+    // ---------------- 任务中心 ----------------
+
+    @Test
+    fun 每日任务挑的是period为day的那条() {
+        val daily = requireNotNull(taskLabelOf(WelfareFixtures.RESPONSE_TASK_LABEL).dailyTask())
+        assertEquals(65928, daily.taskId)
+        assertEquals(13299, daily.groupId)
+        // 名字直接用服务端给的，不在这边写死
+        assertEquals("每日完成1局", daily.name)
+        assertTrue(daily.finished)
+        assertFalse(daily.awarded)
+    }
+
+    @Test
+    fun 真实抓包里该领的是每日与每周那两个() {
+        val ids = taskLabelOf(WelfareFixtures.RESPONSE_TASK_LABEL).claimableTasks().map { it.taskId }
+        assertEquals(listOf(65928, 65929), ids)
+    }
+
+    @Test
+    fun 自动领取只认每日与每周_long与month都不碰() {
+        // 订阅小程序是 long、累登是 month，两个都"已完成未领取"，照样不能被领走
+        assertEquals(listOf(12), taskLabelOf(TASKS_JSON).claimableTasks().map { it.taskId })
+        assertEquals(12, taskLabelOf(TASKS_JSON).dailyTask()?.taskId)
+    }
+
+    @Test
+    fun 已领过的不再出现在可领列表里() {
+        val awarded = TASKS_JSON.replace(
+            """"progress":1,"isfinished":true,"isawarded":false,"ext":{"period":"day"}""",
+            """"progress":1,"isfinished":true,"isawarded":true,"ext":{"period":"day"}""",
+        )
+        assertTrue(awarded != TASKS_JSON)
+        assertTrue(taskLabelOf(awarded).claimableTasks().isEmpty())
+    }
+
+    @Test
+    fun 领取成功的文案取amsmsg并去掉前后空格() {
+        val dto = decode<TaskRewardDto>(
+            unwrapIdeResponse(
+                IdeJson.parseToJsonElement(WelfareFixtures.RESPONSE_TASK_REWARD),
+                IdeMethod.TaskReward,
+            ),
+        )
+        assertEquals("恭喜您获得了礼包： 500积分", dto.rewardText())
+    }
+
+    @Test
+    fun 领取返回Ret非0时不算领到() {
+        // 仓库靠 Ret 判断要不要记去重标记：记了的话这天剩下的机会就被吞掉了
+        val failed = WelfareFixtures.RESPONSE_TASK_REWARD.replace("\"Ret\":0", "\"Ret\":1")
+        val dto = decode<TaskRewardDto>(
+            unwrapIdeResponse(IdeJson.parseToJsonElement(failed), IdeMethod.TaskReward),
+        )
+        assertFalse(dto.res.first().Ret == 0)
+    }
+
+    // ---------------- 概览小字 ----------------
+
+    @Test
+    fun 概览小字的三态说完整() {
+        val base = SignInStatus(
+            date = "2026-09-29",
+            continuousDays = 9,
+            monthDays = 15,
+            monthTarget = 30,
+            dailyTask = WelfareTaskState(name = "每日完成1局", period = "day"),
+        )
+        assertEquals(
+            "连续 9 天 · 本月 15/30 · 每日完成1局 任务未完成",
+            signInSummaryText(base, available = true),
+        )
+        val task = requireNotNull(base.dailyTask)
+        assertEquals("奖励待领取", dailyTaskStateText(task.copy(finished = true)))
+        assertEquals("奖励已领取", dailyTaskStateText(task.copy(finished = true, awarded = true)))
+    }
+
+    @Test
+    fun 拿不到每日任务时小字不摆那一段() {
+        // 冷启动缓存里刻意不存任务态：昨天的"已领取"摆到今天是假话
+        val status = SignInStatus(date = "2026-09-29", continuousDays = 9, monthDays = 15, monthTarget = 30)
+        assertEquals("连续 9 天 · 本月 15/30", signInSummaryText(status, available = true))
+    }
+
+    @Test
+    fun 没拿到数据时小字不谎报连续0天() {
+        assertEquals(
+            "登录后可见，打开 app 时会自动帮你签到",
+            signInSummaryText(SignInStatus(), available = false),
+        )
+    }
+
+    // ---------------- 缓存与开关 ----------------
+
+    @Test
+    fun 积分跟着缓存走且跨天不清空() {
+        val cache = statusOf(HarFixtures.RESPONSE_SIGNIN_LIST).copy(totalScore = 7800).toCache(0L)
+        assertEquals(7800, cache.toStatus("20260922").totalScore)
+        assertEquals(cache, SignInCacheCodec.decode(SignInCacheCodec.encode(cache)))
+    }
+
+    @Test
+    fun 两个开关默认都是开() = runBlocking {
+        val settings = UserSettings(FakeStore())
+        settings.restore()
+        assertTrue(settings.autoSignIn.value)
+        assertTrue(settings.autoClaimWelfareTask.value)
+    }
+
+    @Test
+    fun 只有写成0才是关() = runBlocking {
+        val settings = UserSettings(
+            FakeStore(
+                mapOf(
+                    StoreKey.SIGNIN_AUTO to "0",
+                    StoreKey.WELFARE_TASK_AUTO_CLAIM to "0",
+                ),
+            ),
+        )
+        settings.restore()
+        assertFalse(settings.autoSignIn.value)
+        assertFalse(settings.autoClaimWelfareTask.value)
+    }
+
+    private class FakeStore(
+        initial: Map<String, String> = emptyMap(),
+    ) : KeyValueStore {
+        val map = LinkedHashMap<String, String>(initial)
+
+        override suspend fun read(key: String): String? = map[key]
+
+        override suspend fun write(key: String, value: String) {
+            map[key] = value
+        }
+
+        override suspend fun remove(key: String) {
+            map.remove(key)
+        }
+
+        override fun peek(key: String): String? = map[key]
+    }
+
+    /** 四个任务、四种 period，用来验证"该不该自动领"的筛选。 */
+    private val TASKS_JSON = """{"ret":0,"iRet":0,"jData":{"welfareStationData":{"code":0,"data":{"taskgroups":{"labelgrouptasks":[{"groupid":13299,"grouptasks":[{"taskid":11,"taskinfo":{"name":"订阅小程序"},"taskdata":{"target":1,"progress":1,"isfinished":true,"isawarded":false,"ext":{"period":"long"}}},{"taskid":12,"taskinfo":{"name":"每日完成1局"},"taskdata":{"target":1,"progress":1,"isfinished":true,"isawarded":false,"ext":{"period":"day"}}},{"taskid":13,"taskinfo":{"name":"每周对局5次"},"taskdata":{"target":5,"progress":5,"isfinished":true,"isawarded":true,"ext":{"period":"week"}}},{"taskid":14,"taskinfo":{"name":"累登10天领取"},"taskdata":{"target":10,"progress":10,"isfinished":true,"isawarded":false,"ext":{"period":"month"}}}]}]},"message":""}}}}"""
+
+    private fun scoreRedeemListOf(raw: String): ScoreRedeemListDto =
+        decode(
+            unwrapIdeResponse(IdeJson.parseToJsonElement(raw), IdeMethod.ScoreRedeemList),
+        )
+
+    private fun taskLabelOf(raw: String): TaskLabelDto =
+        decode(
+            unwrapIdeResponse(IdeJson.parseToJsonElement(raw), IdeMethod.TaskLabel),
+        )
 
     private fun statusOf(raw: String): SignInStatus =
         decode<SignInListDto>(

@@ -230,6 +230,26 @@ class QqGiftTest {
     }
 
     @Test
+    fun 缓存跨天之后要标记成stale() {
+        // 周签到是按周走的：隔天的旧数字不能当今天的结论，
+        // 否则会出现"都星期六了还显示星期五已签到"
+        val status = decode<QqFirstScreenDto>(QqHarFixtures.RESPONSE_QQ_FIRSTSCREEN).weeklySignIn()
+        val yesterday = 1789982779L
+        val today = yesterday + 86_400L
+        assertTrue(status.toCache(yesterday).toStatus(today).stale)
+        assertFalse(status.toCache(today).toStatus(today).stale)
+        // 拉到的新数据不带这个标记
+        assertFalse(status.stale)
+    }
+
+    @Test
+    fun 没有时间戳的缓存不算stale() {
+        // savedAtSec 缺失时宁可显示旧数字，也不要凭空说"还没确认"
+        val cache = QqGiftCache(day = 3, totalDays = 7)
+        assertFalse(cache.toStatus().stale)
+    }
+
+    @Test
     fun 缓存编解码往返不丢字段() {
         val cache = QqGiftCache(
             day = 3,

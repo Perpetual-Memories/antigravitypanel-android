@@ -57,6 +57,8 @@ fun QqGiftSection(
     onSaveCredential: (String) -> Unit,
     onAutoClaimChange: (Boolean) -> Unit,
     onClearCredential: () -> Unit,
+    /** 导入抓包文件（HAR）自动识别 QQ 凭证。 */
+    onImportHar: (String) -> Unit,
     onConsumeNotice: () -> Unit,
 ) {
     var sheet by remember { mutableStateOf(false) }
@@ -99,6 +101,9 @@ fun QqGiftSection(
                         text = when {
                             loading && !available -> "同步中…"
                             !available -> "还没拿到状态"
+                            // 缓存跨天了：周签到是按周走的，隔天的旧数字不能当今天的结论，
+                            // 否则会出现"都星期六了还显示星期五已签到"
+                            status.stale -> "还没拿到今天的状态"
                             status.canClaim -> "今天可以领"
                             // 领完 canGot 就翻成 false。除了"今天领过了"，
                             // 理论上也可能是活动停了，但官方这个入口常年挂着，
@@ -218,6 +223,7 @@ fun QqGiftSection(
         onSave = onSaveCredential,
         onAutoClaimChange = onAutoClaimChange,
         onClear = onClearCredential,
+        onImportHar = onImportHar,
         onDismiss = { sheet = false },
     )
 }

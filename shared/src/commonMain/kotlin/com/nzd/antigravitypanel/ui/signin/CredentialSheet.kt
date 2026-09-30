@@ -5,8 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -18,11 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.ui.component.CardCornerRadius
+import com.nzd.antigravitypanel.ui.component.rememberTextFilePicker
 import com.nzd.antigravitypanel.ui.settings.SettingsItemMargin
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -35,6 +41,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Import
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -45,6 +52,15 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 internal const val SIGNIN_RISK_NOTICE =
     "使用APP手动或自动签到不排除封号或账号被标记的可能，风险请自行考量承担，" +
         "APP不对您账号造成的任何损失负责"
+
+/**
+ * 底部「导入抓包 / 清除凭证」两颗按钮的统一定高。
+ *
+ * **不能拿 Miuix 的 `ButtonDefaults.MinHeight`（40dp）当行高**：那是**下限**，不是实际高度，
+ * 按钮真实高度是「内容 + insideMargin」，比 40 高。拿 40 去顶 height() 会把一行字上下裁掉。
+ * 52 的内容区有 28dp，一行字怎么都放得下。
+ */
+private val ACTION_BUTTON_HEIGHT = 52.dp
 
 /**
  * 轻触签到卡片呼出的「cookie 设定」。QQ 游戏中心周签到和心悦悦享卡共用一份。
@@ -76,10 +92,15 @@ fun CredentialSheet(
     onSave: (String) -> Unit,
     onAutoClaimChange: (Boolean) -> Unit,
     onClear: () -> Unit,
+    /** 导入抓包文件。拿到的是文件内容（UTF-8 文本），由 ViewModel 去认凭证。 */
+    onImportHar: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val state = rememberTextFieldState()
     var confirmClear by remember { mutableStateOf(false) }
+    val pickHar = rememberTextFilePicker { text ->
+        if (text != null) onImportHar(text)
+    }
 
     // 只跟着已保存的原文走：清除凭证后 savedRaw 变空，这里顺势把输入框清掉。
     // 条件判断不能省——无脑赋值会把用户正在输入的内容冲掉。
@@ -158,19 +179,68 @@ fun CredentialSheet(
                 )
             }
 
-            // 清除凭证只在真的存过时才给：没凭证还摆一个"清除"会让人以为自己配过。
-            // 红色长条 + 白字，和「退出登录」那颗一个套路；清掉之后不可恢复，
-            // 所以点了先弹一次确认。
-            if (bound) {
+            // 「导入抓包」和「清除凭证」并排：左边那颗是方形的（宽高接近 1:1），
+            // 蓝色底白色 Import 图标；右边那条按剩余宽度铺满。
+            // 清除凭证就此不再独占一行——它是低频操作，给一整行太浪费，
+            // 而且和"导入"放在一起正好是"换凭证"这一件事的两头。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // 行高写死，方形那颗才有确定的解：fillMaxHeight 拿到 52，
+                    // aspectRatio 在"宽不限、高封顶"的约束下必然取 52×52。
+                    // 反过来用 IntrinsicSize.Max 让按钮自己撑高是不行的——
+                    // 竖向滚动里高度没有上界，aspectRatio 会解出一个占满整行宽度的巨型方块。
+                    .height(ACTION_BUTTON_HEIGHT),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Button(
-                    modifier = Modifier.fillMaxWidth(),
+                    // 尺寸参数都要显式给：默认的 minWidth（58dp）会把方形撑成长条，
+                    // insideMargin（16×13）留着的话图标周围会多出一圈、比例又不方了。
+                    // minHeight 清成 0，高度完全交给 fillMaxHeight（= 行高）。
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(1f),
+                    minWidth = 0.dp,
+                    minHeight = 0.dp,
+                    insideMargin = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(
-                        color = MiuixTheme.colorScheme.error,
+                        color = MiuixTheme.colorScheme.primary,
                         contentColor = Color.White,
                     ),
-                    onClick = { confirmClear = true },
+                    onClick = { pickHar() },
                 ) {
-                    Text("清除凭证")
+                    Icon(
+                        imageVector = MiuixIcons.Import,
+                        contentDescription = "从抓包文件导入",
+                        // 显式给尺寸：方形按钮不大，图标按默认尺寸画会顶到边上
+                        modifier = Modifier.size(22.dp),
+                        tint = Color.White,
+                    )
+                }
+
+                // 清除凭证只在真的存过时才给：没凭证还摆一个"清除"会让人以为自己配过。
+                // 红色 + 白字，和「退出登录」那颗一个套路；清掉之后不可恢复，
+                // 所以点了先弹一次确认。
+                //
+                // minHeight 必须清成 0：默认 40dp 会顶住 height(52)，
+                // 但 40 本身装不下一行字（内容区只剩 14dp），四个字被上下裁掉。
+                // insideMargin 纵向压到 12，内容区 28dp，怎么换字号都放得下。
+                if (bound) {
+                    Button(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        minHeight = 0.dp,
+                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            color = MiuixTheme.colorScheme.error,
+                            contentColor = Color.White,
+                        ),
+                        onClick = { confirmClear = true },
+                    ) {
+                        Text("清除凭证")
+                    }
                 }
             }
         }
@@ -227,7 +297,7 @@ fun HintCard(text: String, modifier: Modifier = Modifier) {
  * 两者必须一眼能分开，所以只有这块上黄底。
  */
 @Composable
-private fun RiskNotice() {
+fun RiskNotice() {
     val dark = isInDarkTheme()
     Card(
         modifier = Modifier.fillMaxWidth(),

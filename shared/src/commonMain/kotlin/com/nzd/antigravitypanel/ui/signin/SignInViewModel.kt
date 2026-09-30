@@ -34,6 +34,13 @@ data class SignInUiState(
     /** 正在打签到接口（而不是只拉看板）。按钮要转圈。 */
     val signing: Boolean = false,
     val error: String? = null,
+    /**
+     * 这一轮自动领到的任务中心奖励，形如「已领取：500积分、1000积分」。
+     *
+     * 领取这件事没有按钮、也没有二级页，全靠开 app 那一下顺手做完，
+     * 不说一句的话用户根本不知道自己多了一千多积分。
+     */
+    val notice: String? = null,
 )
 
 /**
@@ -42,6 +49,9 @@ data class SignInUiState(
  * **凭证就绪时自动补签**（`refresh` 里做完），每天只试一次——
  * 不开后台定时任务：Android 的后台管理越来越严，没有自启动权限时周期任务基本不生效，
  * 而"打开 app 顺手签一下"这件事本来就发生在用户会用这个 app 的时刻，漏签概率可接受。
+ *
+ * 任务中心的每日 / 每周奖励是**另一件事**：它和签没签到无关，没签到的日子也照样能领。
+ * 所以两条路各自去重，互不阻塞——签到失败不影响领奖励，领奖励失败也不该把签到卡打没。
  */
 class SignInViewModel(
     api: NzApi,
@@ -74,10 +84,17 @@ class SignInViewModel(
     }
 
     /**
-     * 有凭证就拉看板，并且**今天还没自动签过就顺手签到**。
+     * 有凭证就拉看板，并且**今天还没自动签过就顺手签到**、**有可领的就顺手领奖励**。
      * 没凭证就把卡片收起（清掉缓存），不要留着上一个号的签到状态。
+     *
+     * @param autoSign 开关关掉时只拉看板，一个签到请求都不发。
+     * @param autoClaimTask 开关关掉时连任务中心都不查。
      */
-    fun refresh(cookie: MiniProgramCredential?) {
+    fun refresh(
+        cookie: MiniProgramCredential?,
+        autoSign: Boolean = true,
+        autoClaimTask: Boolean = true,
+    ) {
         if (cookie == null) {
             _state.value = SignInUiState()
             scope.launch { repository.clearCache() }
@@ -87,18 +104,31 @@ class SignInViewModel(
             _state.value = _state.value.copy(loading = true, error = null)
             val today = serverDateKey(currentEpochSeconds())
             val mark = "$today|${cookie.openid}"
-            val autoSign = repository.autoMark() != mark
-
             try {
-                val outcome = if (autoSign) repository.sign(cookie) else null
-                if (outcome != null) {
-                    applyOutcome(outcome)
-                    // 只在真的走完这一轮才记标记：失败了下次开 app 还要再试一次
-                    repository.markAutoDone(mark)
+                val outcome = if (autoSign && repository.autoMark() != mark) {
+                    repository.sign(cookie)
                 } else {
                     // 今天已经自动试过了：只刷看板，不再打签到接口
-                    applyOutcome(SignInOutcome.AlreadySigned(repository.load(cookie)))
+                    SignInOutcome.AlreadySigned(repository.load(cookie, _state.value.status))
                 }
+                // 只在真的走完这一轮才记标记：失败了下次开 app 还要再试一次
+                if (autoSign) repository.markAutoDone(mark)
+
+                var status = outcome.status
+                if (autoClaimTask) {
+                    val claimed = runCatching {
+                        repository.claimTaskRewards(cookie, repository.claimedTaskIds(mark))
+                    }.getOrDefault(emptyMap())
+                    if (claimed.isNotEmpty()) {
+                        repository.markTaskClaimed(mark, claimed.keys)
+                        // 积分涨了，再拉一次把新数字带回来；拉失败就先用旧的，不整个打没
+                        status = runCatching { repository.load(cookie, status) }.getOrDefault(status)
+                        _state.value = _state.value.copy(
+                            notice = "已领取：${claimed.values.joinToString("、")}",
+                        )
+                    }
+                }
+                applyOutcome(SignInOutcome.AlreadySigned(status))
             } catch (e: Throwable) {
                 // 拉失败要留着上一份：一次抖动把卡片打回"需要登录"比慢更难受。
                 // 也不写去重标记，下次开 app 还有机会自动签到。
@@ -143,11 +173,13 @@ class SignInViewModel(
     /**
      * 概览的下拉刷新也要带上这里：顶栏那个刷新按钮是"整页重拉"，
      * 只重刷概览却让签到卡继续显示旧数字，看着像刷新没生效。
+     *
+     * 这里**不**签到也**不**领奖励：下拉是"刷新"，不是"帮我操作"。
      */
     fun refreshBoardOnly(cookie: MiniProgramCredential?) {
         if (cookie == null) return
         scope.launch {
-            runCatching { repository.load(cookie) }
+            runCatching { repository.load(cookie, _state.value.status) }
                 .onSuccess { status ->
                     _state.value = _state.value.copy(
                         status = status,
@@ -157,6 +189,11 @@ class SignInViewModel(
                     repository.writeCache(status)
                 }
         }
+    }
+
+    /** 领到东西那句话只说一次。 */
+    fun consumeNotice() {
+        _state.value = _state.value.copy(notice = null)
     }
 
     /** 登出：缓存和去重标记一起清，换号登录时才不会跳过自动签到。 */

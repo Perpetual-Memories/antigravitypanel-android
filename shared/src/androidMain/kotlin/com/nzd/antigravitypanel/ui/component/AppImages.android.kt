@@ -21,3 +21,6 @@ actual fun statusGlyphPainter(glyph: StatusGlyph): Painter = painterResource(
         StatusGlyph.ALERT -> R.drawable.ic_status_alert
     },
 )
+
+@Composable
+actual fun firstWinChestPainter(): Painter = painterResource(id = R.drawable.first_win_chest)

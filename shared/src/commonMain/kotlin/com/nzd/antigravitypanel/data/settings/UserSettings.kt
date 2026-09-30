@@ -29,11 +29,38 @@ class UserSettings(
         MutableStateFlow(DEFAULT_PREDICTIVE_BACK_TRANSLATION)
     val predictiveBackTranslation: StateFlow<Int> = _predictiveBackTranslation.asStateFlow()
 
+    /**
+     * 「打开APP自动签到」——小程序活动中心那个每日签到。默认**开**。
+     *
+     * 这个开关管的是"要不要帮你点一下签到"，和下面那几个"要不要帮你领东西"
+     * 不是一回事：签到本身不消耗任何东西，漏了就少一天连续。
+     */
+    private val _autoSignIn = MutableStateFlow(DEFAULT_AUTO_SIGN_IN)
+    val autoSignIn: StateFlow<Boolean> = _autoSignIn.asStateFlow()
+
+    /**
+     * 「打开APP自动领取任务中心奖励」——每日完成1局与每周对局5次的积分。默认**开**。
+     *
+     * 默认开的理由和心悦那份一样：这个接口**一次只领传进去的那一个任务**，
+     * 而且只在"服务端说已完成且未领取"时才发请求，等价于每天领一次该领的东西。
+     */
+    private val _autoClaimWelfareTask = MutableStateFlow(DEFAULT_AUTO_CLAIM_WELFARE_TASK)
+    val autoClaimWelfareTask: StateFlow<Boolean> = _autoClaimWelfareTask.asStateFlow()
+
     private val _autoClaimQqGift = MutableStateFlow(DEFAULT_AUTO_CLAIM_QQ_GIFT)
     val autoClaimQqGift: StateFlow<Boolean> = _autoClaimQqGift.asStateFlow()
 
     private val _autoClaimXinyueGift = MutableStateFlow(DEFAULT_AUTO_CLAIM_XINYUE_GIFT)
     val autoClaimXinyueGift: StateFlow<Boolean> = _autoClaimXinyueGift.asStateFlow()
+
+    /**
+     * 「概览页顶栏显示账号信息」（设置 → 外观）。默认**开**。
+     *
+     * 开了之后一级页的工具条左侧换成"头像 + 昵称 + 分区"那颗胶囊，
+     * 应用名就不再收进折叠后的工具条里（它仍然是大标题，位置没变）。
+     */
+    private val _topBarAccount = MutableStateFlow(DEFAULT_TOP_BAR_ACCOUNT)
+    val topBarAccount: StateFlow<Boolean> = _topBarAccount.asStateFlow()
 
     suspend fun restore() {
         val saved = store.read(StoreKey.RETENTION_MONTHS)?.toIntOrNull()
@@ -49,10 +76,17 @@ class UserSettings(
             store.read(StoreKey.PREDICTIVE_BACK_TRANSLATION)?.toIntOrNull()
                 ?.takeIf { it in 0..100 } ?: DEFAULT_PREDICTIVE_BACK_TRANSLATION
 
+        // 两个默认开的都判"关"而不是判"开"：没写过这个键时结果是 true
+        _autoSignIn.value = store.read(StoreKey.SIGNIN_AUTO) != "0"
+
+        _autoClaimWelfareTask.value = store.read(StoreKey.WELFARE_TASK_AUTO_CLAIM) != "0"
+
         _autoClaimQqGift.value = store.read(StoreKey.QQ_GIFT_AUTO_CLAIM) == "1"
 
         // 默认开，所以判"关"而不是判"开"：没写过这个键时结果是 true
         _autoClaimXinyueGift.value = store.read(StoreKey.XINYUE_AUTO_CLAIM) != "0"
+
+        _topBarAccount.value = store.read(StoreKey.TOP_BAR_ACCOUNT) != "0"
     }
 
     suspend fun setRetentionMonths(months: Int) {
@@ -80,6 +114,27 @@ class UserSettings(
     }
 
     /**
+     * 小程序活动中心的自动签到。默认开（[DEFAULT_AUTO_SIGN_IN]）。
+     *
+     * 关掉之后 app 只会**看**签到状态，不再帮你签——想签自己在签到页点按钮。
+     */
+    suspend fun setAutoSignIn(enabled: Boolean) {
+        store.write(StoreKey.SIGNIN_AUTO, if (enabled) "1" else "0")
+        _autoSignIn.value = enabled
+    }
+
+    /**
+     * 任务中心每日 / 每周奖励的自动领取。默认开（[DEFAULT_AUTO_CLAIM_WELFARE_TASK]）。
+     *
+     * 领取接口一次只领一个任务，且只在"已完成且未领取"时才发请求，
+     * 所以它等价于"每天把该领的积分领了"，性质上和签到一样安全。
+     */
+    suspend fun setAutoClaimWelfareTask(enabled: Boolean) {
+        store.write(StoreKey.WELFARE_TASK_AUTO_CLAIM, if (enabled) "1" else "0")
+        _autoClaimWelfareTask.value = enabled
+    }
+
+    /**
      * 游戏中心周签到礼包的自动领取。默认关（[DEFAULT_AUTO_CLAIM_QQ_GIFT]）。
      *
      * 之所以默认关：那个领取接口是**批量**的，会把服务端认为能领的礼包一起领走，
@@ -103,6 +158,16 @@ class UserSettings(
     suspend fun setAutoClaimXinyueGift(enabled: Boolean) {
         store.write(StoreKey.XINYUE_AUTO_CLAIM, if (enabled) "1" else "0")
         _autoClaimXinyueGift.value = enabled
+    }
+
+    /**
+     * 「概览页顶栏显示账号信息」（设置 → 外观）。默认开（[DEFAULT_TOP_BAR_ACCOUNT]）。
+     *
+     * 关掉是**纯回退**：工具条左侧空出来，应用名照旧折叠进工具条，和这一版之前一模一样。
+     */
+    suspend fun setTopBarAccount(enabled: Boolean) {
+        store.write(StoreKey.TOP_BAR_ACCOUNT, if (enabled) "1" else "0")
+        _topBarAccount.value = enabled
     }
 
     companion object {
@@ -134,11 +199,20 @@ class UserSettings(
         /** 预测返回默认的最大横移距离（屏幕宽度的百分比）。 */
         const val DEFAULT_PREDICTIVE_BACK_TRANSLATION = 75
 
+        /** 小程序签到自动签到默认**开**，理由见 [setAutoSignIn]。 */
+        const val DEFAULT_AUTO_SIGN_IN = true
+
+        /** 任务中心自动领取默认**开**，理由见 [setAutoClaimWelfareTask]。 */
+        const val DEFAULT_AUTO_CLAIM_WELFARE_TASK = true
+
         /** 游戏中心自动领取默认**关**，理由见 [setAutoClaimQqGift]。 */
         const val DEFAULT_AUTO_CLAIM_QQ_GIFT = false
 
         /** 心悦悦享卡自动领取默认**开**，理由见 [setAutoClaimXinyueGift]。 */
         const val DEFAULT_AUTO_CLAIM_XINYUE_GIFT = true
+
+        /** 「概览页顶栏显示账号信息」默认开，理由见 [setTopBarAccount]。 */
+        const val DEFAULT_TOP_BAR_ACCOUNT = true
 
         fun autoRefreshLabel(minutes: Int): String = when {
             minutes <= ON_OPEN -> "每次打开时刷新"

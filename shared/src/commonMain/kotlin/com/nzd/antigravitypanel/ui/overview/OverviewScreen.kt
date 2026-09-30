@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,6 +87,13 @@ fun OverviewScreen(
     onOpenAllActivities: () -> Unit,
     onOpenBuildPlan: () -> Unit,
     plan: BuildPlan,
+    /**
+     * 画在列表首项的大标题（应用名）。null = 不画。
+     *
+     * 顶栏摆账号胶囊时由调用方传进来：那会儿顶栏里不能留大标题（下滑会被收走），
+     * 而用户要的是"应用名像状态卡那样跟着页面移动"，所以只能放进列表里。
+     */
+    inlineTitle: String? = null,
     modifier: Modifier = Modifier,
     insets: PaddingValues = PaddingValues(0.dp),
 ) {
@@ -96,18 +105,63 @@ fun OverviewScreen(
 
     val recent = state.recent
 
+    val listState = rememberLazyListState()
+    // ⚠️ 顶栏摆账号胶囊时这一页的顶栏只有工具条（SmallTopAppBar），比带大标题时矮了一整行，
+    // 于是列表的 contentPadding.top 也跟着变。**contentPadding 一变，LazyList 会保持首项
+    // 当时的屏幕位置**，换算过来就是 scroll 不再是 0 —— 用户看到的就是
+    // "打开软件页面自己下滑了一截"，手拉回顶部布局又是对的（说明布局没错，错的是初始滚动位置）。
+    // 所以模式切换（以及首次进入）的那一帧把列表拉回顶部。key 只是布尔值，
+    // 正常滚动不会触发它 —— 平时用户滚到哪儿就还在哪儿。
+    LaunchedEffect(inlineTitle != null) {
+        listState.scrollToItem(0)
+    }
+
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .overScrollVertical(),
         contentPadding = PaddingValues(
             start = 12.dp,
-            top = 12.dp + insets.calculateTopPadding(),
+            top = if (inlineTitle != null) {
+                // 摆账号胶囊时顶栏走 SmallTopAppBar（只有工具条），
+                // [insets] 就是"状态栏 + 工具条"，应用名贴着它下沿 ——
+                // 正好是它当大标题时的那条线（TopAppBar 里大标题就是
+                // padding(top = CollapsedHeight) 起画的），一像素都不差。
+                // ⚠️ 这里**不能再叠 12dp**：多叠多少，应用名和顶栏之间就多出多少缝。
+                // ⚠️ 也**不要**去减 [insets]：那会把下面所有内容一起往上顶，
+                // 看着就是"打开软件页面自己下滑了一截"。
+                insets.calculateTopPadding()
+            } else {
+                12.dp + insets.calculateTopPadding()
+            },
             end = 12.dp,
             bottom = 12.dp + insets.calculateBottomPadding(),
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // 顶栏摆账号胶囊时，顶栏里没有大标题（它会随下滑被收走），
+        // 应用名改在这里画：它是列表的第一项，**跟着内容一起滚**，
+        // 和下面的状态卡一个性质，而不是悬在页面上方不动。
+        if (inlineTitle != null) {
+            item(key = "title") {
+                Text(
+                    text = inlineTitle,
+                    // 和 Miuix `TopAppBar` 的大标题同一档字号，只是位置换了。
+                    // 横向 14dp + 列表自身的 12dp = 26dp，正好是 TopAppBarDefaults.TitlePadding，
+                    // 应用名的左边缘和旧版大标题对齐
+                    style = MiuixTheme.textStyles.title1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .padding(start = 14.dp)
+                        // 补上 Miuix 大标题下面那 4dp（LargeTitleBottomPadding）：
+                        // 从应用名到下面状态卡的距离要和它还在顶栏里当大标题时一模一样，
+                        // 这样开关开了以后，屏幕上除了"这一行跟着内容滚"，别的什么都不动
+                        .padding(bottom = 4.dp),
+                )
+            }
+        }
+
         item(key = "status") {
             StatusGrid(
                 status = state.cookieStatus,
@@ -128,9 +182,13 @@ fun OverviewScreen(
                 qqStatus = qqState.status,
                 qqAvailable = qqState.available,
                 qqBound = qqState.bound,
+                qqError = qqState.error,
+                qqLoading = qqState.loading,
                 xinyueStatus = xinyueState.status,
                 xinyueAvailable = xinyueState.available,
                 xinyueBound = xinyueState.bound,
+                xinyueError = xinyueState.error,
+                xinyueLoading = xinyueState.loading,
                 onClick = onOpenSignIn,
             )
         }

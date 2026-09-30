@@ -28,6 +28,14 @@ data class OverviewCache(
     val stats: UserStatsDto = UserStatsDto(),
     val recent: RecentFive? = null,
     val activities: List<ActivityEvent> = emptyList(),
+    /**
+     * 上一次取到的账号名片（头像 + 昵称 + 归属 openid）。
+     *
+     * 顺这份缓存一起落盘的理由和其余字段一样：**冷启动第一帧就该有东西**。
+     * 昵称只有一个网络请求拿得到，不存的话每次开 app 顶栏都要先空一会儿。
+     * 换不换号由它的 `openid` 字段判定（见 [AccountProfile]）。
+     */
+    val account: AccountProfile? = null,
     val savedAtSec: Long = 0,
 )
 

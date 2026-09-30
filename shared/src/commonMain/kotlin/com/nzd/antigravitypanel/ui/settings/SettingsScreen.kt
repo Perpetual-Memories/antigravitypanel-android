@@ -37,6 +37,7 @@ import top.yukonga.miuix.kmp.basic.Text
 // 图标是 extended 包里声明在 MiuixIcons 上的扩展属性，所以两行都要：
 // 没有 extended.* 那行，MiuixIcons.Import 会 unresolved。
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Import
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -45,12 +46,15 @@ import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.icon.extended.Timer
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 data class SettingsUiState(
     val retentionMonths: Int = UserSettings.DEFAULT_RETENTION_MONTHS,
     val autoRefreshMinutes: Int = UserSettings.ON_OPEN,
+    /** 「概览页顶栏显示账号信息」（见 `UserSettings.setTopBarAccount`）。 */
+    val topBarAccountEnabled: Boolean = UserSettings.DEFAULT_TOP_BAR_ACCOUNT,
 )
 
 /**
@@ -75,6 +79,7 @@ fun SettingsScreen(
     state: SettingsUiState,
     onAutoRefreshChange: (Int) -> Unit,
     onRetentionMonthsChange: (Int) -> Unit,
+    onTopBarAccountChange: (Boolean) -> Unit,
     onClearLocalData: () -> Unit,
     onOpenTheme: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -101,6 +106,16 @@ fun SettingsScreen(
         ) {
             SectionTitle(text = "外观")
             PreferenceCard {
+                // 顶栏那颗账号胶囊（头像 + 昵称 + 分区）的开关**就摆在外观组里**。
+                // 它和主题一样属于"看起来的样子"，压到主题那个二级页里没人找得到 ——
+                // 二级页给的是"整体外观怎么配"，这个是单个功能的开合。
+                SwitchPreference(
+                    title = "概览页顶栏显示账号信息",
+                    startAction = { PreferenceIcon(MiuixIcons.Contacts) },
+                    insideMargin = SettingsItemMargin,
+                    checked = state.topBarAccountEnabled,
+                    onCheckedChange = onTopBarAccountChange,
+                )
                 // 主题单独进二级页（照 HyperIsland：外观 → 主题），
                 // 一级页只给入口，具体开关在里面
                 ArrowPreference(

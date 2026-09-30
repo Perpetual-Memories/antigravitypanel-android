@@ -657,14 +657,58 @@ class P4DomainTest {
         assertEquals(listOf(12, 14, 21), sections[4].entries.map { it.mapId })
     }
 
+    /** 塔防从 S4 到 S0 分五节，对应关系是用户给的。 */
     @Test
-    fun towerAndTimeHuntGetOneUntitledSection() {
+    fun towerIsSplitIntoSeasonsNewestFirst() {
         val tower = groupMapsBySeason(GameMode.TOWER, emptyList())
-        assertEquals(1, tower.size)
-        assertEquals("", tower.single().title)
-        // 311 银河战舰是 S4 新增的塔防图，官方把它排在最前
-        assertEquals(listOf(311, 310, 309, 304, 306, 300), tower.single().entries.map { it.mapId })
+        assertEquals(
+            listOf("S4 赛季", "S3 赛季", "S2 赛季", "S1 赛季", "S0 赛季"),
+            tower.map { it.title },
+        )
+        assertEquals(listOf(311), tower[0].entries.map { it.mapId }) // 银河战舰
+        assertEquals(listOf(310), tower[1].entries.map { it.mapId }) // 失落游轮
+        assertEquals(listOf(309), tower[2].entries.map { it.mapId }) // 蔷薇庄园
+        assertEquals(listOf(306), tower[3].entries.map { it.mapId }) // 联盟大厦
+        assertEquals(listOf(300, 304), tower[4].entries.map { it.mapId }) // 空间站 + 20号星港
+    }
 
+    /**
+     * 塔防-新手关（308）连「其他地图」都不该出现。
+     *
+     * 光把它从展示表里拿掉是不够的：本地真打过它时，它会作为**表外地图**
+     * 被补到最后一节（112 那条用例就是同一个机制）。
+     */
+    @Test
+    fun towerNoviceMapIsGoneEverywhere() {
+        val sections = groupMapsBySeason(GameMode.TOWER, listOf(stat(308, 3)))
+        assertEquals(listOf("S4 赛季", "S3 赛季", "S2 赛季", "S1 赛季", "S0 赛季"), sections.map { it.title })
+        assertTrue(sections.flatMap { it.entries }.none { it.mapId == 308 })
+    }
+
+    /**
+     * 赛季筛选：只勾 S0 时只有那一节。
+     *
+     * ⚠️ 被筛掉的图**不能**漏进「其他地图」—— 那会让筛选形同虚设
+     * （S4 的图打过的话就会从别的节里冒出来）。
+     */
+    @Test
+    fun seasonFilterDropsUnselectedSectionsWithoutLeakingToLeftovers() {
+        val stats = listOf(stat(20, 5), stat(12, 8))
+        val sections = groupMapsBySeason(GameMode.HUNT, stats, seasons = setOf("S0"))
+        assertEquals(listOf("S0 赛季"), sections.map { it.title })
+        assertEquals(listOf(12, 14, 21), sections.single().entries.map { it.mapId })
+    }
+
+    /** null = 没筛过 = 全选；空集合 = 一个都没勾。 */
+    @Test
+    fun seasonFilterNullMeansAllAndEmptyMeansNone() {
+        val all = groupMapsBySeason(GameMode.HUNT, emptyList(), seasons = null)
+        assertEquals(5, all.size)
+        assertTrue(groupMapsBySeason(GameMode.HUNT, emptyList(), seasons = emptySet()).isEmpty())
+    }
+
+    @Test
+    fun timeHuntGetsOneUntitledSection() {
         val timeHunt = groupMapsBySeason(GameMode.TIME_HUNT, emptyList())
         // 月海火线（424）不在列表里：官方明确跳过它（`supportStatistics = false`），
         // 摆上去就是一张永远 0 场的卡。本地真有它的对局时会落到「其他地图」那一节。

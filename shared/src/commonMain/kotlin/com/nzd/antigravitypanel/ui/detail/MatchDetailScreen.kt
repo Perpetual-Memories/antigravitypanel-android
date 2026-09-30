@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,7 +62,9 @@ import com.nzd.antigravitypanel.ui.component.HintBlock
 import com.nzd.antigravitypanel.ui.component.mapArtPainter
 import com.nzd.antigravitypanel.ui.component.pluginPainter
 import com.nzd.antigravitypanel.ui.component.weaponPainter
+import com.nzd.antigravitypanel.ui.format.formatCoinPerMinute
 import com.nzd.antigravitypanel.ui.format.formatCompact
+import com.nzd.antigravitypanel.ui.format.formatDamagePerWanCoin
 import com.nzd.antigravitypanel.ui.format.formatDateShort
 import com.nzd.antigravitypanel.ui.format.formatDuration
 import com.nzd.antigravitypanel.ui.format.formatScore
@@ -254,6 +257,8 @@ fun MatchDetailScreen(
                                     rank = index + 1,
                                     isSelf = player.baseDetail?.vOpenID == selfOpenId,
                                     showExtra = showExtra,
+                                    // 分均经济要拿金币除以时长，时长是**整局**的，不是某个人的
+                                    durationSec = match?.duration ?: 0,
                                 )
                             }
                         }
@@ -505,6 +510,7 @@ private fun PlayerCard(
     rank: Int,
     isSelf: Boolean,
     showExtra: Boolean,
+    durationSec: Int,
 ) {
     var showEquipment by remember { mutableStateOf(false) }
 
@@ -550,7 +556,11 @@ private fun PlayerCard(
                     if (showEquipment) {
                         EquipmentRow(player = player)
                     } else {
-                        StatGrid(player = player, showExtra = showExtra)
+                        StatGrid(
+                            player = player,
+                            durationSec = durationSec,
+                            showExtra = showExtra,
+                        )
                     }
                 }
             }
@@ -599,108 +609,127 @@ private val RankColors = listOf(
 private fun rankColor(rank: Int): Color =
     RankColors.getOrNull(rank - 1) ?: MiuixTheme.colorScheme.onSurfaceVariantSummary
 
+/** 一格统计：上数值下标签。 */
+private data class StatItem(
+    val value: String,
+    val label: String,
+    /** false = 这一项是 0 / 算不出来，压暗。 */
+    val highlight: Boolean = true,
+)
+
 /**
- * 通关数据：三列居中，每列上数值下标签。
+ * 通关数据的网格：**一行四格**，不够四格时按实际数量排（[columns]）。
  *
- * 三列是照官方 PC 端的排布（积分/击杀/死亡 一行，Boss/小怪/金币 一行），
- * 但**竖着放**：原来一横排六个数挤在半张卡里，现在一列就是一个维度，扫起来不用对齐。
+ * 原来是三列两行（上排积分/击杀/死亡、下排 Boss/小怪/金币）。加到八项之后三列要排三行，
+ * 而卡片高度是写死的 [PlayerCardHeight]，多一行必然溢出，所以改成四列两行。
+ *
+ * **顺序是用户定的**（上排偏"打出去多少"、下排偏"花了多少 / 扛了多少"）：
+ *
+ * ```
+ * 积分      击杀    Boss 伤害   经济转化
+ * 分均经济   死亡    小怪伤害    金币
+ * ```
+ *
+ * 只有上排的数值加粗：一屏十几张卡，加粗是"先看这里"的暗示，
+ * 两排都粗等于没有加粗。非猎场（没有 Boss/金币口径）时只剩积分/击杀/死亡三项。
  */
 @Composable
 private fun StatGrid(
     player: PlayerDetailDto,
+    durationSec: Int,
     showExtra: Boolean,
 ) {
     val hunting = player.huntingDetails
-    Row(
+    val coin = hunting?.totalCoin ?: 0L
+    val boss = hunting?.damageTotalOnBoss ?: 0L
+    val mobs = hunting?.damageTotalOnMobs ?: 0L
+
+    val items = buildList {
+        add(StatItem(formatScore(player.baseDetail?.iScore ?: 0L), "积分"))
+        add(StatItem((player.baseDetail?.iKills ?: 0).toString(), "击杀"))
+        if (showExtra) {
+            add(StatItem(formatCompact(boss), "Boss 伤害", boss > 0))
+            add(
+                StatItem(
+                    value = formatDamagePerWanCoin(boss, coin),
+                    label = "经济转化",
+                    highlight = boss > 0 && coin > 0,
+                ),
+            )
+            add(
+                StatItem(
+                    value = formatCoinPerMinute(coin, durationSec),
+                    // 单位是万：写在标签里而不是挂在数后面，否则这一列比别的长一截
+                    label = "分均经济(万)",
+                    highlight = coin > 0 && durationSec > 0,
+                ),
+            )
+            add(StatItem((player.baseDetail?.iDeaths ?: 0).toString(), "死亡"))
+            add(StatItem(formatCompact(mobs), "小怪伤害", mobs > 0))
+            add(StatItem(formatCompact(coin), "金币", coin > 0))
+        } else {
+            add(StatItem((player.baseDetail?.iDeaths ?: 0).toString(), "死亡"))
+        }
+    }
+    val columns = items.size.coerceAtMost(4)
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 10.dp),
+            .padding(top = 6.dp),
+        // 两排之间要留够间距：原来那版每格里上下两行中间隔着 10dp，
+        // 拆成独立的两排之后不显式spacedBy就会挤在一起，看着像一行。
+        verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
     ) {
-        StatColumn(
-            modifier = Modifier.weight(1f),
-            top = formatScore(player.baseDetail?.iScore ?: 0L),
-            topLabel = "积分",
-            bottom = formatCompact(hunting?.damageTotalOnBoss ?: 0L),
-            bottomLabel = "Boss 伤害",
-            showBottom = showExtra,
-            bottomHighlight = (hunting?.damageTotalOnBoss ?: 0L) > 0,
-        )
-        StatColumn(
-            modifier = Modifier.weight(1f),
-            top = (player.baseDetail?.iKills ?: 0).toString(),
-            topLabel = "击杀",
-            bottom = formatCompact(hunting?.damageTotalOnMobs ?: 0L),
-            bottomLabel = "小怪伤害",
-            showBottom = showExtra,
-            bottomHighlight = (hunting?.damageTotalOnMobs ?: 0L) > 0,
-        )
-        StatColumn(
-            modifier = Modifier.weight(1f),
-            top = (player.baseDetail?.iDeaths ?: 0).toString(),
-            topLabel = "死亡",
-            bottom = formatCompact(hunting?.totalCoin ?: 0L),
-            bottomLabel = "金币",
-            showBottom = showExtra,
-            bottomHighlight = (hunting?.totalCoin ?: 0L) > 0,
-        )
+        for ((index, row) in items.chunked(columns).withIndex()) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                for (item in row) {
+                    StatCell(
+                        modifier = Modifier.weight(1f),
+                        item = item,
+                        bold = index == 0,
+                    )
+                }
+                // 末行不满要补同样 weight 的 Spacer：不然那几格会被拉宽，和上面对不齐
+                repeat(columns - row.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun StatColumn(
+private fun StatCell(
     modifier: Modifier,
-    top: String,
-    topLabel: String,
-    bottom: String,
-    bottomLabel: String,
-    showBottom: Boolean,
-    bottomHighlight: Boolean,
+    item: StatItem,
+    bold: Boolean,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = top,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MiuixTheme.colorScheme.onSurface,
+            text = item.value,
+            fontSize = 14.sp,
+            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+            // 0 的项压暗：一屏十几张卡，只有真有数的才该跳出来
+            color = if (item.highlight) {
+                MiuixTheme.colorScheme.onSurface
+            } else {
+                MiuixTheme.colorScheme.onSurfaceVariantSummary
+            },
             textAlign = TextAlign.Center,
             maxLines = 1,
         )
         Text(
-            text = topLabel,
-            modifier = Modifier.padding(top = 2.dp),
-            fontSize = 11.sp,
+            text = item.label,
+            modifier = Modifier.padding(top = 1.dp),
+            fontSize = 10.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             textAlign = TextAlign.Center,
             maxLines = 1,
         )
-        if (showBottom) {
-            Text(
-                text = bottom,
-                modifier = Modifier.padding(top = 10.dp),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                // 0 的项压暗：一屏十几张卡，只有真有数的才该跳出来
-                color = if (bottomHighlight) {
-                    MiuixTheme.colorScheme.onSurface
-                } else {
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary
-                },
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-            )
-            Text(
-                text = bottomLabel,
-                modifier = Modifier.padding(top = 1.dp),
-                fontSize = 10.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-            )
-        }
     }
 }
 

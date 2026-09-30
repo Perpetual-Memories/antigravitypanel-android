@@ -204,6 +204,19 @@ fun mergeMapStats(
 }
 
 /**
+ * 一个赛季：标题 + 这个赛季上线的地图。
+ *
+ * [key] 是给**筛选 / 持久化**用的短键（`S0`），[title] 是页面上那行小标题（`S0 赛季`）。
+ * 分开存是因为 title 带着「赛季」两个字，哪天文案改了，用它当持久化 key 的话
+ * 用户存下来的勾选会全部失效、默默退回全选。
+ */
+data class MapSeason(
+    val key: String,
+    val title: String,
+    val mapIds: List<Int>,
+)
+
+/**
  * 猎场的赛季归属，新的在前 —— 官方前端的展示顺序就是从 S4 一路排到 S0。
  *
  * 次序直接抄前端的 `Hs.僵尸猎场`（地图分布页就是按它在 `Hs` 里的下标排序的）：
@@ -218,24 +231,51 @@ fun mergeMapStats(
  * 按 **mapId** 分组而不是按地图名：名字会随 `center.config.list` 下发的内容变
  * （时空追猎那几张在配置里叫「根除异变」，我们的兜底表里叫「根除变异」），
  * 拿名字当 key 迟早在某个模式上对不上。id 是稳定的。
- *
- * 塔防 / 时空追猎**没有**赛季划分：官方没下发这张表，而 `SeasonId` 字段实测在真实对局
- * 里恒为空串（`HarFixtures` 里的 10 条样例全是 `""`），拿不到就别编。
  */
-private val HUNT_SEASONS: List<Pair<String, List<Int>>> = listOf(
+private val HUNT_SEASON_ORDER: List<MapSeason> = listOf(
     // S4·朔望计划（2026-09-22）：朔望计划 + 禁魔岛
-    "S4 赛季" to listOf(20, 22),
-    "S3 赛季" to listOf(18, 15),
-    "S2 赛季" to listOf(19, 13),
-    "S1 赛季" to listOf(16, 17),
-    "S0 赛季" to listOf(12, 14, 21),
+    MapSeason("S4", "S4 赛季", listOf(20, 22)),
+    MapSeason("S3", "S3 赛季", listOf(18, 15)),
+    MapSeason("S2", "S2 赛季", listOf(19, 13)),
+    MapSeason("S1", "S1 赛季", listOf(16, 17)),
+    MapSeason("S0", "S0 赛季", listOf(12, 14, 21)),
 )
+
+/**
+ * 塔防的赛季归属（用户给的对应关系），同样是新的在前。
+ *
+ * ```
+ * S4 银河战舰 / S3 失落游轮 / S2 蔷薇庄园 / S1 联盟大厦 / S0 空间站 + 20号星港
+ * ```
+ *
+ * ⚠️ 塔防-新手关（308）**不在任何一季里**，也不该出现在「其他地图」：
+ * 它不是正经地图，摆上去就是一张永远 0 场的卡（见 [TOWER_HIDDEN_IDS]）。
+ */
+private val TOWER_SEASON_ORDER: List<MapSeason> = listOf(
+    MapSeason("S4", "S4 赛季", listOf(311)),
+    MapSeason("S3", "S3 赛季", listOf(310)),
+    MapSeason("S2", "S2 赛季", listOf(309)),
+    MapSeason("S1", "S1 赛季", listOf(306)),
+    MapSeason("S0", "S0 赛季", listOf(300, 304)),
+)
+
+/** 哪些模式有赛季表（也就只有它们能做赛季筛选）。时空追猎没有，官方没下发。 */
+private val SEASON_MODES: Map<GameMode, List<MapSeason>> = mapOf(
+    GameMode.HUNT to HUNT_SEASON_ORDER,
+    GameMode.TOWER to TOWER_SEASON_ORDER,
+)
+
+fun seasonOrderOf(mode: GameMode): List<MapSeason> = SEASON_MODES[mode].orEmpty()
+
+/** 有赛季表的模式 —— 只有这两个能按赛季筛。 */
+fun hasSeasonFilter(mode: GameMode): Boolean = mode in SEASON_MODES
 
 /**
  * 展示用的地图 id（含**本地没打过**的），次序照官方前端。
  *
- * 只有塔防和时空追猎在这里 —— 猎场的次序在 [HUNT_SEASONS] 里，那张表本身就已经
- * 按赛季把九张图排完了，再留一份只会两边不同步。
+ * ⚠️ **只有时空追猎在这里**：猎场和塔防的次序都在各自的赛季表里
+ * （[HUNT_SEASON_ORDER] / [TOWER_SEASON_ORDER]），那两张表本身就排完了，
+ * 再留一份只会两边不同步（塔防加赛季时就是这么撞过一次）。
  *
  * 不含：
  * - 新手关（30 / 308 / 324）—— 不是正经地图
@@ -248,9 +288,28 @@ private val HUNT_SEASONS: List<Pair<String, List<Int>>> = listOf(
  * 摆上去就是一张永远 0 场的卡。
  */
 private val DISPLAY_MAP_IDS: Map<GameMode, List<Int>> = mapOf(
-    GameMode.TOWER to listOf(311, 310, 309, 304, 306, 300),
     GameMode.TIME_HUNT to listOf(323, 322, 321),
 )
+
+/**
+ * 连「其他地图」都不该出现的 id：**塔防-新手关**（308）。
+ *
+ * 用户明确要求塔防里不要它。之所以要单独列一个黑名单而不是"不在展示表里就完了"：
+ * 本地真打过它时它会作为**表外地图**被补到最后一节，光改展示表挡不住。
+ */
+private val TOWER_HIDDEN_IDS: Set<Int> = setOf(308)
+
+/**
+ * 这张图在这个模式下是不是整个都不该出现（连兜底的「其他地图」也不摆）。
+ *
+ * 只对塔防生效：猎场-新手关（30）虽然也在展示表之外，但用户没要求删，
+ * 而且它在本地真的打过时出现在「其他地图」里反而是一条线索（"打过这张"）。
+ */
+private fun isHidden(mode: GameMode, mapId: Int, name: String): Boolean {
+    if (mode != GameMode.TOWER) return false
+    // 名字再兜一道：服务端哪天下发一张叫「xx新手关」的塔防图，也该被挡住
+    return mapId in TOWER_HIDDEN_IDS || name.contains("新手关")
+}
 
 /** 表外地名（打过但不在 [DISPLAY_MAP_IDS] 里）归到这一节。 */
 private const val LEFTOVER_SECTION = "其他地图"
@@ -266,7 +325,7 @@ data class MapSection(
 )
 
 /**
- * 按赛季（猎场）/ 模式（塔防、时空追猎）分节，并把没打过的地图补成 0 场。
+ * 按赛季（猎场、塔防）/ 模式（时空追猎）分节，并把没打过的地图补成 0 场。
  *
  * **补零是有意的**：分节之后"这个赛季有哪几张图"本身就是信息。只列打过的那几张，
  * S0 会只剩一张卡，看不出这个赛季一共几张图。官方 PC 端也是这么做的 ——
@@ -274,28 +333,48 @@ data class MapSection(
  *
  * 节内次序用官方次序而**不是**场次：卡片按赛季固定之后，位置就该是稳定的，
  * 否则"销金之城在哪一节第几张"每次同步完都变。
+ *
+ * @param seasons 勾了哪些赛季的 **key**（`S0`…）。**null = 没筛过**，全部显示；
+ *   空集合是"一个都没勾"，那真的一个赛季都不显示。
+ *   ⚠️ 被筛掉的赛季里的图**不能**漏进「其他地图」—— 那样筛选等于没生效：
+ *   表外地图是按"赛季表覆盖到的全部 id"判定的，不是按当前可见的那些。
  */
 fun groupMapsBySeason(
     mode: GameMode,
     stats: List<MapStatEntry>,
     config: GameConfigDto = GameConfigDto(),
+    seasons: Set<String>? = null,
 ): List<MapSection> {
     val byId = stats.associateBy { it.mapId }
-    val sections = when (mode) {
-        // 猎场的次序就是赛季表的次序：S3 -> S2 -> S1 -> S0
-        GameMode.HUNT -> HUNT_SEASONS
+    val order = seasonOrderOf(mode)
+
+    val result: List<MapSection>
+    val covered: Set<Int>
+    if (order.isNotEmpty()) {
+        covered = order.flatMapTo(mutableSetOf()) { it.mapIds }
+        result = order
+            .filter { seasons == null || it.key in seasons }
+            .map { season ->
+                MapSection(season.title, season.mapIds.map { entryOf(it, byId, config) })
+            }
+    } else {
         // 没有赛季数据：整个模式一节，且不摆标题（见 [MapSection.title]）
-        GameMode.TOWER, GameMode.TIME_HUNT -> listOf("" to DISPLAY_MAP_IDS[mode].orEmpty())
-        else -> emptyList()
+        val ids = DISPLAY_MAP_IDS[mode].orEmpty()
+        covered = ids.toSet()
+        result = if (ids.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(MapSection("", ids.map { entryOf(it, byId, config) }))
+        }
     }
 
-    val placed = sections.flatMapTo(mutableSetOf()) { it.second }
-    val result = sections
-        .map { (title, ids) -> MapSection(title, ids.map { entryOf(it, byId, config) }) }
+    val leftovers = stats
+        .asSequence()
+        .map { it.mapId }
         // 表里一张图都没有时（配置还没拉到、表也没覆盖），别留一个空标题在那儿
-        .filter { it.entries.isNotEmpty() }
+        .filter { it !in covered && !isHidden(mode, it, byId[it]?.name ?: mapNameOf(it, config)) }
+        .toList()
 
-    val leftovers = stats.map { it.mapId }.filter { it !in placed }
     return if (leftovers.isEmpty()) {
         result
     } else {

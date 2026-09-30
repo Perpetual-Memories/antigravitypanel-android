@@ -56,6 +56,8 @@ fun XinyueSection(
     onSaveCredential: (String) -> Unit,
     onAutoClaimChange: (Boolean) -> Unit,
     onClearCredential: () -> Unit,
+    /** 导入抓包文件（HAR）自动识别心悦凭证。 */
+    onImportHar: (String) -> Unit,
     onConsumeNotice: () -> Unit,
 ) {
     var sheet by remember { mutableStateOf(false) }
@@ -207,6 +209,7 @@ fun XinyueSection(
         onSave = onSaveCredential,
         onAutoClaimChange = onAutoClaimChange,
         onClear = onClearCredential,
+        onImportHar = onImportHar,
         onDismiss = { sheet = false },
     )
 }

@@ -47,3 +47,16 @@ enum class StatusGlyph {
 /** 资源：`shared/src/androidMain/res/drawable/ic_status_check.xml` / `ic_status_alert.xml`。 */
 @Composable
 expect fun statusGlyphPainter(glyph: StatusGlyph): Painter
+
+/**
+ * 每日首胜宝箱的箱子插画，用在概览页那个弹窗的左侧。
+ *
+ * 素材抄官方 PC 端的 `first_win_chest.webp`（1024×1024、带 alpha），原样放进
+ * `shared/src/androidMain/res/drawable-nodpi/`：它是一张**已经带高光和阴影的成品插画**，
+ * 不像上面的状态符号那样需要 tint，所以拿到之后直接 `Image` 画出来，谁都别给它上色。
+ *
+ * 目前只有概览页那个弹窗用。别顺手拿它去顶掉顶栏那颗图标按钮 —— 顶栏要的是随主题
+ * 变色的单色矢量，这里是张彩色插画，混着用在浅色主题下会是一坨看不清的东西。
+ */
+@Composable
+expect fun firstWinChestPainter(): Painter

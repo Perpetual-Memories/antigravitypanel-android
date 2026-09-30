@@ -4,6 +4,7 @@ import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.remote.CookieExpiredException
 import com.nzd.antigravitypanel.data.remote.NzApi
+import com.nzd.antigravitypanel.data.repo.AccountProfile
 import com.nzd.antigravitypanel.data.repo.OverviewCache
 import com.nzd.antigravitypanel.data.repo.OverviewCacheCodec
 import com.nzd.antigravitypanel.data.repo.OverviewMode
@@ -57,6 +58,14 @@ data class OverviewUiState(
     val error: String? = null,
     /** 当前数字全部来自本地库（已导入 JSON、未登录）。近五场那几项算不出来，UI 要如实说明。 */
     val localOnly: Boolean = false,
+
+    /**
+     * 顶栏账号区要的名片（头像 + 昵称 + 归属 openid）。null = 还没有 / 拿不到。
+     *
+     * ⚠️ **展示前要拿它的 openid 跟当前凭证对一遍**：这是上一次拉到的结论，
+     *   扫码换号之后新号的第一帧还不该顶着旧名字（比对在 AppContent 那边做）。
+     */
+    val account: AccountProfile? = null,
 
     /**
      * 卡片上显示的是**上次缓存下来的状态**，这一轮的凭证还没被服务端确认。
@@ -134,6 +143,8 @@ class OverviewViewModel(
                     localOnly = false,
                     firstWinCount = null,
                     cookieVerifying = false,
+                    // 没凭证了就没有"当前账号"，名片必须跟着清
+                    account = null,
                 )
                 scope.launch { persist(CookieStatus.MISSING) }
                 return
@@ -183,6 +194,9 @@ class OverviewViewModel(
                     error = null,
                     localOnly = false,
                     cookieVerifying = false,
+                    // 取不到就留着上一份：换一次网络抖动就把顶栏的名片打空，
+                    // 比"慢一点才更新"难受得多
+                    account = snapshot.account ?: _state.value.account,
                 )
                 persist(CookieStatus.OK)
             } catch (e: Throwable) {
@@ -206,6 +220,7 @@ class OverviewViewModel(
             stats = current.stats,
             recent = current.recent,
             activities = current.activities,
+            account = current.account,
             savedAtSec = currentEpochSeconds(),
         )
         runCatching { store.write(StoreKey.OVERVIEW_CACHE, OverviewCacheCodec.encode(cache)) }
@@ -237,6 +252,7 @@ internal fun restoreOverviewFromCache(raw: String?, nowSec: Long): OverviewUiSta
         cookieStatus = status,
         stats = cache.stats,
         recent = cache.recent,
+        account = cache.account,
         // 缓存可能是几天前写的，里面有些活动已经结束了，先滤掉
         activities = upcomingActivities(cache.activities, nowSec),
         // 缓存的是「未输入」说明上一次就没登录，那不该显示"正在同步"

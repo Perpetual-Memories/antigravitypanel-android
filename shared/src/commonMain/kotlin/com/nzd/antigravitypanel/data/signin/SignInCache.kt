@@ -25,6 +25,13 @@ data class SignInCache(
     val monthDays: Int = 0,
     val monthTarget: Int = 0,
     val todayGiftName: String = "",
+    /**
+     * 当前积分总数。跟着 [SignInStatus.totalScore] 一样可空：没拿到过就是 null。
+     *
+     * 跨天也**不**清成 null：积分是只增不减的余额，摆一份昨天的数字
+     * 比摆一个"什么都没有"更接近真相，等这一轮拉到新的再覆盖。
+     */
+    val totalScore: Int? = null,
     val savedAtSec: Long = 0,
 )
 
@@ -50,11 +57,15 @@ fun SignInStatus.toCache(nowSec: Long): SignInCache = SignInCache(
     monthDays = monthDays,
     monthTarget = monthTarget,
     todayGiftName = todayGiftName,
+    totalScore = totalScore,
     savedAtSec = nowSec,
 )
 
 /**
  * 缓存 → 展示模型。
+ *
+ * [SignInStatus.dailyTask] **不落盘**：它是按天重置的，昨天的"奖励已领取"
+ * 摆到今天就是一句假话——宁可这一屏先不显示它，等拉到今天的再说。
  *
  * 日期对不上今天（缓存是昨天写的）时不改数字，只把 [SignInStatus.signedToday]
  * 置回 false —— 跨天后"昨天签过了"不该让今天显示成已签。
@@ -72,4 +83,5 @@ fun SignInCache.toStatus(todayKey: String): SignInStatus = SignInStatus(
     monthDays = monthDays,
     monthTarget = monthTarget,
     todayGiftName = todayGiftName,
+    totalScore = totalScore,
 )

@@ -77,6 +77,20 @@ fun startOfServerDay(epochSec: Long): Long {
 }
 
 /**
+ * 距离服务端时区的**下一个 [hour] 点**还剩多少秒。
+ *
+ * 官方每日数据的刷新时刻是早上 05:00（官方前端就是 `setHours(5,0,0,0)`，过了就顺延一天），
+ * 这里按北京时间定位同一个点 —— 理由同 [startOfServerDay]：服务端只认北京时间，
+ * 按 UTC 或者按改过的系统时区算都会差几个小时，倒计时就会在真正刷新之前归零。
+ *
+ * [hour] 取 0~23；传了超出范围的值会被整除挤到相邻的一天，调用方别这么干。
+ */
+fun secondsUntilNextServerDayAt(nowSec: Long, hour: Int): Long {
+    val target = startOfServerDay(nowSec) + hour * 3600L
+    return if (target > nowSec) target - nowSec else target + SECONDS_PER_DAY - nowSec
+}
+
+/**
  * 服务端所在时区的日期键，形如 `20260921`。
  *
  * 用来判断"今天"这种按天去重的事（比如自动签到一天只试一次）。必须按北京时间切，

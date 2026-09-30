@@ -4,6 +4,7 @@ import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.remote.dto.GameDetailDto
+import com.nzd.antigravitypanel.data.repo.MatchBossStats
 import com.nzd.antigravitypanel.ui.home.describeSyncError
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,14 @@ data class MatchDetailUiState(
 class MatchDetailViewModel(
     private val api: NzApi,
     private val dao: MatchDao,
+    /**
+     * 顺手把这一局的 Boss 口径记进缓存。
+     *
+     * 历史页那两个标签（实力局 / 带飞局）要用它，而它只在这个详情接口里有 ——
+     * 这里详情**已经拉回来了**，不额外花请求就能给历史页攒一份，
+     * 否则那两个标签只能全靠历史页自己后台补。
+     */
+    private val bossStats: MatchBossStats,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -48,6 +57,8 @@ class MatchDetailViewModel(
             val previous = match?.let { dao.previousOf(it.mapId, it.subModeType, it.eventTimeSec) }
             try {
                 val detail = api.gameDetail(roomId)
+                // 记缓存失败无所谓（标签少显示一个而已），不该让详情页跟着挂
+                bossStats.record(roomId, detail)
                 _state.value = MatchDetailUiState(
                     loading = false,
                     match = match,

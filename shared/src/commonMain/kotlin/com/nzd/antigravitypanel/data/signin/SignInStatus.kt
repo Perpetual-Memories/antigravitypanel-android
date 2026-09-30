@@ -27,6 +27,18 @@ data class SignInStatus(
     /** 活动周期起止（累计那个窗口的），形如 `2026-05-09`。 */
     val periodStart: String = "",
     val periodEnd: String = "",
+    /**
+     * 当前积分总数（福利站-兑换币）。来自 `/api/score/redeem/list`，
+     * 和签到看板不是同一个接口，领完任务奖励它会立刻变。
+     *
+     * null = 这一轮没拿到。**不要当成 0 显示**——那是"不知道"，不是"0 分"。
+     */
+    val totalScore: Int? = null,
+    /**
+     * 任务中心里「每日完成1局」那一条（`period == day`）。概览小字要显示它的三态。
+     * 同样是 null = 没拿到。
+     */
+    val dailyTask: WelfareTaskState? = null,
     /** 今日奖励的标题，比如「100积分」。 */
     val todayGiftName: String = "",
     /** 今日奖励拆开来的条目，比如「福利中心-兑换币 x100」。 */

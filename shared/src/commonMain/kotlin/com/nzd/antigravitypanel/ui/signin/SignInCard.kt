@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.qq.QqWeeklySignIn
 import com.nzd.antigravitypanel.data.signin.SignInStatus
+import com.nzd.antigravitypanel.data.signin.WelfareTaskState
 import com.nzd.antigravitypanel.data.xinyue.XinyueCardStatus
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -26,6 +27,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.icon.extended.Tasks
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -48,10 +50,15 @@ fun SignInCard(
     qqStatus: QqWeeklySignIn,
     qqAvailable: Boolean,
     qqBound: Boolean,
+    /** 周签到这一轮拉失败的原因。非空时那一行要打叉，不能还挂着勾。 */
+    qqError: String? = null,
+    qqLoading: Boolean = false,
     /** 心悦悦享卡的每日礼包。又是另一套凭证与接口。 */
     xinyueStatus: XinyueCardStatus,
     xinyueAvailable: Boolean,
     xinyueBound: Boolean,
+    xinyueError: String? = null,
+    xinyueLoading: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -112,6 +119,8 @@ fun SignInCard(
                 status = qqStatus,
                 available = qqAvailable,
                 bound = qqBound,
+                loading = qqLoading,
+                error = qqError,
             )
 
             Box(
@@ -126,6 +135,8 @@ fun SignInCard(
                 status = xinyueStatus,
                 available = xinyueAvailable,
                 bound = xinyueBound,
+                loading = xinyueLoading,
+                error = xinyueError,
             )
         }
     }
@@ -137,12 +148,28 @@ fun SignInCard(
  * 只显示"第几天 / 今天领什么 / 能不能领"三件事——概览不是礼包列表，
  * 其余十几个礼包不进这一屏。
  */
+/**
+ * 卡片里周签到那一行。
+ *
+ * 右侧图标有**三种**，不是"勾 / 不勾"两态：
+ * - **叉**：这一轮拉失败了（`error` 非空）。之前失败也挂着勾——
+ *   实际上只是把上一次缓存的结论又显示了一遍，用户看不出已经坏了。
+ * - **勾**：今天真的确认过了，且今天没有可领的（= 已领取）。
+ * - **任务图标（灰）**：还没确认完。这里包含"缓存已经跨天"的情况：
+ *   周签到是按周走的，隔天的旧数字不能再当今天的结论，
+ *   否则会出现"都星期六了还显示星期五已签到"。
+ */
 @Composable
 private fun QqSignInRow(
     status: QqWeeklySignIn,
     available: Boolean,
     bound: Boolean,
+    loading: Boolean,
+    error: String?,
 ) {
+    val failed = error != null
+    val pending = loading || status.stale
+    val done = available && !failed && !pending && !status.canClaim
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -152,20 +179,28 @@ private fun QqSignInRow(
                 color = MiuixTheme.colorScheme.onSurface,
             )
             Text(
-                text = qqSummaryText(status, available, bound),
+                text = qqSummaryText(status, available, bound, loading, error),
                 modifier = Modifier.padding(top = 2.dp),
                 fontSize = 13.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                color = if (failed) {
+                    MiuixTheme.colorScheme.error
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                },
             )
         }
         Icon(
-            imageVector = if (available && !status.canClaim) MiuixIcons.Ok else MiuixIcons.Tasks,
+            imageVector = when {
+                failed -> MiuixIcons.Close
+                done -> MiuixIcons.Ok
+                else -> MiuixIcons.Tasks
+            },
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = if (available && !status.canClaim) {
-                signInAccentColor()
-            } else {
-                MiuixTheme.colorScheme.onSurfaceVariantSummary
+            tint = when {
+                failed -> MiuixTheme.colorScheme.error
+                done -> signInAccentColor()
+                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
             },
         )
     }
@@ -183,8 +218,13 @@ private fun XinyueSignInRow(
     status: XinyueCardStatus,
     available: Boolean,
     bound: Boolean,
+    loading: Boolean,
+    error: String?,
 ) {
-    val done = available && status.hasCard && !status.expired && !status.canClaim
+    // 和 QQ 那行同一个三态：失败打叉、没确认完打灰、确认领完了打勾
+    val failed = error != null
+    val done = available && !failed && !loading && status.hasCard &&
+        !status.expired && !status.canClaim
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -197,22 +237,46 @@ private fun XinyueSignInRow(
                 text = xinyueSummaryText(status, available, bound),
                 modifier = Modifier.padding(top = 2.dp),
                 fontSize = 13.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                color = if (failed) {
+                    MiuixTheme.colorScheme.error
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                },
             )
         }
         Icon(
-            imageVector = if (done) MiuixIcons.Ok else MiuixIcons.Tasks,
+            imageVector = when {
+                failed -> MiuixIcons.Close
+                done -> MiuixIcons.Ok
+                else -> MiuixIcons.Tasks
+            },
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = if (done) signInAccentColor() else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            tint = when {
+                failed -> MiuixTheme.colorScheme.error
+                done -> signInAccentColor()
+                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            },
         )
     }
 }
 
 /** 周签到那行的副标题。没绑定时不显示"第几天"——那是"不知道"，不是"第 0 天"。 */
-internal fun qqSummaryText(status: QqWeeklySignIn, available: Boolean, bound: Boolean): String {
+internal fun qqSummaryText(
+    status: QqWeeklySignIn,
+    available: Boolean,
+    bound: Boolean,
+    /** 正在拉。拉的过程中不能说"已领取"——那是上一次的结论。 */
+    loading: Boolean = false,
+    error: String? = null,
+): String {
     if (!bound) return "需要 QQ 登录凭证"
+    // 失败要说得比"没拿到"更重：进了这行说明之前是配好的，是这一轮坏了
+    if (error != null) return "这一轮没拉到：${error.take(28)}"
     if (!available) return "还没拿到，点开看看"
+    if (loading) return "正在确认今天的状态…"
+    // 缓存跨天了：还没拿到今天的结论，别拿旧数字冒充
+    if (status.stale) return "还没确认今天的状态"
     // 一周是 7 天：第 8 格是七天全签满之后的额外奖励，不当成一周里的第 8 天。
     val day = if (status.totalDays > 0) "本周 ${status.weekDay}/${status.totalDays}" else "第 ${status.day} 天"
     val reward = status.todayReward.takeIf { it.isNotBlank() }?.let { " · 今日 $it" } ?: ""
@@ -222,18 +286,44 @@ internal fun qqSummaryText(status: QqWeeklySignIn, available: Boolean, bound: Bo
     return "$day$reward$state"
 }
 
-/** 卡片副标题。没拿到数据时不说"连续 0 天"——那是"不知道"，不是"0 天"。 */
+/**
+ * 卡片副标题。没拿到数据时不说"连续 0 天"——那是"不知道"，不是"0 天"。
+ *
+ * 三段的顺序是"越往后越像待办"：连续天数和本月进度是看一眼就完事的结论，
+ * 末尾那条是「每日完成1局」的**三态**，它是这一行里唯一可能"还有事没办"的。
+ *
+ * 累计天数不在这里：二级页那张卡的四格里已经有一格是它，概览一行塞三个数字
+ * 会挤得换行。
+ */
 internal fun signInSummaryText(status: SignInStatus, available: Boolean): String {
     if (!available) return "登录后可见，打开 app 时会自动帮你签到"
     if (status.date.isBlank()) return "暂时拿不到签到状态"
     val parts = buildList {
         add("连续 ${status.continuousDays} 天")
-        add("累计 ${status.totalDays} 天")
         if (status.monthTarget > 0) add("本月 ${status.monthDays}/${status.monthTarget}")
-        if (status.todayGiftName.isNotBlank()) add("今日 ${status.todayGiftName}")
+        // 拿不到（刚冷启动、还没拉完）就整段不摆：昨天"已领取"的结论摆到今天是假话
+        status.dailyTask?.let { task ->
+            val name = task.name.ifBlank { DEFAULT_DAILY_TASK_NAME }
+            add("$name ${dailyTaskStateText(task)}")
+        }
     }
     return parts.joinToString(" · ")
 }
+
+/**
+ * 任务中心那条的三态。
+ *
+ * 三种说法的长度刻意接近（都是 5 个字）：这一行是"连续 n 天 · 本月 n/m · …"，
+ * 前两段短、末段长的话，末段一变长整行就换行，卡片高度会跟着跳。
+ */
+internal fun dailyTaskStateText(task: WelfareTaskState): String = when {
+    task.awarded -> "奖励已领取"
+    task.finished -> "奖励待领取"
+    else -> "任务未完成"
+}
+
+/** 任务名拿不到时的兜底。抓包时服务端给的是「每日完成1局」。 */
+internal const val DEFAULT_DAILY_TASK_NAME = "每日完成1局"
 
 /** 已签到的强调色。沿用概览状态卡那组绿，深浅色各一份。 */
 @Composable

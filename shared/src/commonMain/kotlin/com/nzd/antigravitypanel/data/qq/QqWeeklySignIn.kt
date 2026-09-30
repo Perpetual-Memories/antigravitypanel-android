@@ -43,6 +43,15 @@ data class QqWeeklySignIn(
     val fullWeekBonus: String = "",
     /** 角色名，让用户确认领到的是不是自己的号。 */
     val roleName: String = "",
+
+    /**
+     * 这份数字不是**今天**拉到的（从缓存里读出来的，且已经跨天）。
+     *
+     * 周签到是按周走的，所以这条特别要紧：缓存里那份可能是前几天的，
+     * 跨天之后再拿它当"今天的结论"就会出现"都星期六了还显示星期五已签到"。
+     * 拉到新数据后恒为 false——只有缓存路径会把它置起来。
+     */
+    val stale: Boolean = false,
 ) {
     val hasData: Boolean get() = totalDays > 0
 

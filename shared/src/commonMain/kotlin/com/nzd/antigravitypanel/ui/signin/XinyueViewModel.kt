@@ -1,5 +1,7 @@
 package com.nzd.antigravitypanel.ui.signin
 
+import com.nzd.antigravitypanel.data.credential.HarCredentialScanner
+import com.nzd.antigravitypanel.data.credential.SignInCredentialKind
 import com.nzd.antigravitypanel.data.store.KeyValueStore
 import com.nzd.antigravitypanel.data.store.StoreKey
 import com.nzd.antigravitypanel.data.xinyue.XinyueApiException
@@ -184,6 +186,31 @@ class XinyueViewModel(
         )
         refresh(autoClaim = false)
         return credential
+    }
+
+    /**
+     * 从抓包文件（HAR）里认心悦凭证，认到就直接存并拉一次。
+     *
+     * 三种失败分开说（理由同 QQ 那块）：文件不是 HAR / 抓错页面 / 抓对了但请求头不全。
+     */
+    suspend fun importFromHar(text: String) {
+        val scan = HarCredentialScanner.scan(text)
+        if (!scan.looksLikeHar) {
+            _state.value = _state.value.copy(error = "这个文件读不出 HAR 结构，换一份抓包文件试试")
+            return
+        }
+        val raw = scan.raw(SignInCredentialKind.XINYUE)
+        if (raw == null) {
+            _state.value = _state.value.copy(
+                error = "这份 HAR 里没有心悦的请求头，要进心悦的悦享卡页抓一次",
+            )
+            return
+        }
+        if (saveCredential(raw) == null) {
+            _state.value = _state.value.copy(
+                error = "HAR 里找到心悦的请求了，但 T-OPENID 或 T-ACCESS-TOKEN 少了一个",
+            )
+        }
     }
 
     suspend fun clearCredential() {

@@ -1,5 +1,7 @@
 package com.nzd.antigravitypanel.ui.signin
 
+import com.nzd.antigravitypanel.data.credential.HarCredentialScanner
+import com.nzd.antigravitypanel.data.credential.SignInCredentialKind
 import com.nzd.antigravitypanel.data.qq.QqApiException
 import com.nzd.antigravitypanel.data.qq.QqClaimOutcome
 import com.nzd.antigravitypanel.data.qq.QqCredential
@@ -188,6 +190,33 @@ class QqGiftViewModel(
         )
         refresh(autoClaim = false)
         return credential
+    }
+
+    /**
+     * 从抓包文件（HAR）里认 QQ 凭证，认到就直接存并拉一次。
+     *
+     * 三种失败分开说，因为它们指向的动作完全不同：
+     * 文件不是 HAR（选错文件）、是 HAR 但没有游戏中心的请求（抓错页面）、
+     * 有请求但 cookie 里缺字段（抓对了但登录态那一项没带上）。
+     */
+    suspend fun importFromHar(text: String) {
+        val scan = HarCredentialScanner.scan(text)
+        if (!scan.looksLikeHar) {
+            _state.value = _state.value.copy(error = "这个文件读不出 HAR 结构，换一份抓包文件试试")
+            return
+        }
+        val raw = scan.raw(SignInCredentialKind.QQ_GIFT)
+        if (raw == null) {
+            _state.value = _state.value.copy(
+                error = "这份 HAR 里没有游戏中心的请求，要在游戏中心里抓一次",
+            )
+            return
+        }
+        if (saveCredential(raw) == null) {
+            _state.value = _state.value.copy(
+                error = "HAR 里有游戏中心的请求，但那段 cookie 里缺 uin 或 p_skey",
+            )
+        }
     }
 
     suspend fun clearCredential() {
