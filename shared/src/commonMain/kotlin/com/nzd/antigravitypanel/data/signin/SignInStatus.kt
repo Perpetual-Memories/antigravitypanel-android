@@ -48,7 +48,18 @@ data class SignInStatus(
      * 有几格画几格。
      */
     val days: List<SignInDay> = emptyList(),
-)
+) {
+    /**
+     * 今天该办的事是不是都办完了：签到了，且每日任务奖励已经领走。
+     *
+     * 首页那张卡靠它在**冷启动第一帧**就打勾（缓存里有这一条），
+     * 而不是先空一段等这一轮拉完再说。
+     *
+     * [dailyTask] 为 null 时只要求签到签过：那是"这一条还没拉到"或
+     * "服务端没下发这一条"，两种情况都不该把勾扣住。
+     */
+    val allDoneToday: Boolean get() = signedToday && (dailyTask?.awarded ?: true)
+}
 
 data class SignInDay(
     val date: String = "",

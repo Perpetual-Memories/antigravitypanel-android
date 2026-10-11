@@ -30,6 +30,9 @@ import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
 import com.nzd.antigravitypanel.ui.component.InfoGrid
+import com.nzd.antigravitypanel.ui.component.TopBarGlassAnchor
+import com.nzd.antigravitypanel.ui.component.TopBarGlassBackButton
+import com.nzd.antigravitypanel.ui.component.TopBarGlassPlaceholder
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -46,10 +49,10 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 /**
  * 签到明细页。概览那张卡点开进来。
@@ -88,25 +91,30 @@ fun SignInScreen(
     val scrollBehavior = MiuixScrollBehavior()
     val pullToRefreshState = rememberPullToRefreshState()
     var welfareSheet by remember { mutableStateOf(false) }
+    // 返回键玻璃的定位锚点：位置由顶栏槽位里那个占位上报。
+    // 玻璃必须画在顶栏**外面**那层不被裁的 overlay 上 —— Miuix 顶栏自带
+    // clipToBounds，溢出到 42dp 之外的阴影会被切成一条直边。
+    val backGlassAnchor = remember { TopBarGlassAnchor() }
 
     BarBlurHost(enabled = liquidGlassEnabled) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                BlurredBar(topGradient = true) {
+                BlurredBar(
+                    topGradient = true,
+                    startGlassAnchor = backGlassAnchor,
+                    startGlass = {
+                        TopBarGlassBackButton(
+                            onBack = onBack,
+                            scrollBehavior = scrollBehavior,
+                        )
+                    },
+                ) {
                     SmallTopAppBar(
                         title = "每日签到",
                         color = Color.Transparent,
                         scrollBehavior = scrollBehavior,
-                        navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(
-                                    imageVector = MiuixIcons.Back,
-                                    contentDescription = "返回",
-                                    tint = MiuixTheme.colorScheme.onSurface,
-                                )
-                            }
-                        },
+                        navigationIcon = { TopBarGlassPlaceholder(backGlassAnchor) },
                     )
                 }
             },
@@ -125,8 +133,16 @@ fun SignInScreen(
                 PullToRefresh(
                     isRefreshing = state.loading || qqState.loading || xinyueState.loading,
                     onRefresh = {
-                        viewModel.refreshBoardOnly(cookie)
-                        // 只刷状态、不顺手领：下拉是"刷新"，不是"领取"
+                        // 领取时机是明确的：**冷启动和每一次刷新都要试**。
+                        // 「每日完成1局」白天才达成，下拉刷新不试的话只能杀掉 app 重开。
+                        // 已经领完的压根不会发领取请求（服务端 isawarded 已经是 true），
+                        // 所以这里带上两个开关没有副作用。
+                        viewModel.refresh(
+                            cookie = cookie,
+                            autoSign = autoSign,
+                            autoClaimTask = autoClaimTask,
+                        )
+                        // 下面两块是另两套凭证，用户没要求它们跟着下拉一起领，保持只刷状态
                         qqViewModel.refresh(autoClaim = false)
                         xinyueViewModel.refresh(autoClaim = false)
                     },
@@ -138,6 +154,8 @@ fun SignInScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .overScrollVertical()
+                            // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+                            .scrollEndHaptic()
                             .nestedScroll(scrollBehavior.nestedScrollConnection),
                         // contentPadding 必须也传给 LazyColumn：PullToRefresh 拿它算下拉的起点，
                         // 列表自己这份才是真正把首项顶到顶栏下面的

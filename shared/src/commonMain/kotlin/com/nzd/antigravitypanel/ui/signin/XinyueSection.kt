@@ -93,12 +93,15 @@ fun XinyueSection(
                     Text("填入心悦凭证")
                 }
             } else {
-                val done = available && status.hasCard && !status.expired && !status.canClaim
+                val done = available && status.hasCard && !status.expired &&
+                    !status.canClaim && !status.stale
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = when {
                             loading && !available -> "同步中…"
                             !available -> "还没拿到状态"
+                            // 缓存是前几天写的：那是"上次领到哪"，不是"今天领没领"
+                            status.stale -> "还没拿到今天的状态"
                             !status.hasCard -> "没有悦享卡"
                             status.expired -> "已过期"
                             status.canClaim -> "今天可以领"
@@ -220,9 +223,20 @@ fun XinyueSection(
  * 三件事分开说：**有没有卡 / 过期没过期 / 今天领没领**。
  * 没绑定时不显示"0/30"——那是"不知道"，不是"0"。
  */
-internal fun xinyueSummaryText(status: XinyueCardStatus, available: Boolean, bound: Boolean): String {
+internal fun xinyueSummaryText(
+    status: XinyueCardStatus,
+    available: Boolean,
+    bound: Boolean,
+    /**
+     * 正在拉。和 QQ 那行同一个规矩：**只在还没有今天的结论时才说话** ——
+     * 手上已经有一份今天的缓存时，把它换成「正在确认…」等于让结论先闪没再回来。
+     */
+    loading: Boolean = false,
+): String {
     if (!bound) return "需要心悦凭证"
-    if (!available) return "还没拿到，点开看看"
+    if (!available) return if (loading) "正在确认今天的状态…" else "还没拿到，点开看看"
+    // 缓存是前几天写的：那是"上次领到哪"不是"今天领没领"，不能当今天的结论摆
+    if (status.stale) return if (loading) "正在确认今天的状态…" else "还没确认今天的状态"
     if (!status.hasCard) return "这个号没有悦享卡"
     if (status.expired) {
         return "已过期" + status.endDate.takeIf { it.isNotBlank() }?.let { " · $it 到期" }.orEmpty()

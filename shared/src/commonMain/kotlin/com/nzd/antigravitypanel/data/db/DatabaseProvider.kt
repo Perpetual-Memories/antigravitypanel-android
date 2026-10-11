@@ -24,7 +24,7 @@ object DatabaseProvider {
             .setQueryCoroutineContext(Dispatchers.IO)
             // 老库（version 1）升级时会走到这里。少注册一个迁移，Room 默认直接抛
             // IllegalStateException —— 那就是"更新完 app 一打开就崩"。
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
             .also { instance = it }
     }

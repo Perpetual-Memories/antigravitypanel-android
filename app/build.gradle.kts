@@ -23,8 +23,11 @@ android {
         applicationId = "com.nzd.antigravitypanel"
         minSdk = 33
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.2"
+        // ⚠️ 版本号不是"本地累加"：在 GitHub 上还没有更新的 release 之前，
+        // 这里只能是**已发布的最新版 + 1**（当前线上是 v0.2.2 → 这里是 0.2.3）。
+        // 每发一个 release 就把两边一起 +1，别在本地连跳两级。
+        versionCode = 5
+        versionName = "0.2.3"
     }
     // 发布签名：凭据放 keystore.properties（和 *.jks 一样在 .gitignore 里）。
     // **文件不存在就退化成不签名**，而不是让构建直接失败——别人 clone 下来跑

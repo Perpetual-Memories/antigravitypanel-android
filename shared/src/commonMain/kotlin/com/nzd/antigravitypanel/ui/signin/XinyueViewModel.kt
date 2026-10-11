@@ -59,14 +59,32 @@ class XinyueViewModel(
     api: XinyueClubApi = XinyueClubApi(),
     /** 冷启动同步读到的缓存原文。走 suspend 的话第一帧早就画完了。 */
     cachedSeed: String? = null,
+    /**
+     * 冷启动同步读到的**凭证原文**（`StoreKey.XINYUE_CREDENTIAL_RAW`）。
+     *
+     * ⚠️ 只带 [cachedSeed] 不够：绑没绑凭证是 `bound`，它不在缓存里
+     * （缓存只存状态数字）。少了这一路，冷启动第一帧会先摆一句「需要心悦凭证」，
+     * 等 `restore()` 协程跑完才跳成真实数字 —— 明明缓存是好的，却闪一下"没绑"。
+     */
+    credentialSeed: String? = null,
 ) {
     private val repository = XinyueRepository(api, store)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val seeded = cachedSeed?.let { XinyueCardCacheCodec.decode(it) }?.toStatus()
+    private val seeded = cachedSeed?.let { XinyueCardCacheCodec.decode(it) }
+        ?.toStatus(currentEpochSeconds())
+    private val seededBound = !credentialSeed.isNullOrBlank()
 
     private val _state = MutableStateFlow(
-        seeded?.let { XinyueUiState(status = it, available = true) } ?: XinyueUiState(),
+        seeded?.let {
+            XinyueUiState(
+                status = it,
+                // 缓存摆在这里就是为了"第一帧就有结论"，bound 也必须在这一帧给出
+                bound = seededBound,
+                available = true,
+                credentialRaw = credentialSeed.orEmpty(),
+            )
+        } ?: XinyueUiState(bound = seededBound, credentialRaw = credentialSeed.orEmpty()),
     )
     val state: StateFlow<XinyueUiState> = _state.asStateFlow()
 
@@ -83,7 +101,7 @@ class XinyueViewModel(
         }
         val cache = repository.readCached()
         _state.value = XinyueUiState(
-            status = cache?.toStatus() ?: XinyueCardStatus(),
+            status = cache?.toStatus(currentEpochSeconds()) ?: XinyueCardStatus(),
             bound = credential != null,
             available = cache != null,
             credentialRaw = credential?.raw.orEmpty(),

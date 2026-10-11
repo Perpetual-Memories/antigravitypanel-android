@@ -38,6 +38,7 @@ kotlin {
                 api(libs.miuix.preference)
                 api(libs.miuix.blur)
                 implementation(libs.miuix.icons)
+                implementation(libs.miuix.squircle)
 
                 implementation(libs.jetbrains.compose.runtime)
                 implementation(libs.jetbrains.compose.foundation)

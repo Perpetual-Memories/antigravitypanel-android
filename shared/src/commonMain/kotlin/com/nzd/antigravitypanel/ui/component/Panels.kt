@@ -35,6 +35,13 @@ fun StatCard(
     title: String,
     value: String,
     modifier: Modifier = Modifier,
+    /**
+     * 数值的颜色，默认用主题正文色。
+     *
+     * 给「今日机甲战」那类**要凭颜色表态**的数值用（达标绿 / 不达标红），
+     * 其余一律留着默认值 —— 一张卡上随便上色，等于把"这里是重点"的暗示稀释掉。
+     */
+    valueColor: androidx.compose.ui.graphics.Color = MiuixTheme.colorScheme.onSurface,
     onClick: (() -> Unit)? = null,
 ) {
     val content: @Composable () -> Unit = {
@@ -62,7 +69,7 @@ fun StatCard(
                 ),
                 maxLines = 1,
                 fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
+                color = valueColor,
             )
         }
     }

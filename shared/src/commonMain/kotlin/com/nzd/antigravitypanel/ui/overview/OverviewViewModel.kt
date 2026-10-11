@@ -19,6 +19,7 @@ import com.nzd.antigravitypanel.ui.home.describeSyncError
 import com.nzd.antigravitypanel.data.store.KeyValueStore
 import com.nzd.antigravitypanel.data.store.StoreKey
 import com.nzd.antigravitypanel.util.currentEpochSeconds
+import com.nzd.antigravitypanel.util.serverDateKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,6 +55,15 @@ data class OverviewUiState(
     val activities: List<ActivityEvent> = emptyList(),
     /** 每日首胜宝箱可领数量；null = 没拉到（没登录或接口失败），不是 0。 */
     val firstWinCount: Int? = null,
+
+    /**
+     * 今日机甲战局数（`n / [MECHA_TODAY_GOAL] 场` 里那个 n）。
+     *
+     * null = **还不知道**（没切到那个选项 / 没凭证 / 这一轮失败了），不是 0 ——
+     * 0 是"今天一局没打"，null 是"我没问到"，这两个在卡片上必须分得开。
+     * ⚠️ 只有 [OverviewMode.MECHA_TODAY] 被选中时才会去拉，平时不占配额。
+     */
+    val mechaTodayCount: Int? = null,
     val loading: Boolean = false,
     val error: String? = null,
     /** 当前数字全部来自本地库（已导入 JSON、未登录）。近五场那几项算不出来，UI 要如实说明。 */
@@ -142,6 +152,8 @@ class OverviewViewModel(
                     error = null,
                     localOnly = false,
                     firstWinCount = null,
+                    // 没凭证就拉不到机甲对局，留着上一次的数会让人以为今天打过
+                    mechaTodayCount = null,
                     cookieVerifying = false,
                     // 没凭证了就没有"当前账号"，名片必须跟着清
                     account = null,
@@ -198,6 +210,12 @@ class OverviewViewModel(
                     // 比"慢一点才更新"难受得多
                     account = snapshot.account ?: _state.value.account,
                 )
+                // 今天打了几局一直在变，手动刷新时如果正停在这一项就跟着重数一次。
+                // ⚠️ 另起一个协程：重数要翻好几页对局列表，等它跑完再落盘的话
+                // 这一轮拿到的近五场 / 活动会被拖到几秒后才存下来。
+                if (_state.value.mode == OverviewMode.MECHA_TODAY) {
+                    scope.launch { loadMechaToday() }
+                }
                 persist(CookieStatus.OK)
             } catch (e: Throwable) {
                 val status = if (e is CookieExpiredException) CookieStatus.EXPIRED else _state.value.cookieStatus
@@ -212,8 +230,13 @@ class OverviewViewModel(
         }
     }
 
-    /** 把当前这一份页面内容落盘，供下一次冷启动先用着。 */
-    private suspend fun persist(status: CookieStatus) {
+    /**
+     * 把当前这一份页面内容落盘，供下一次冷启动先用着。
+     *
+     * @param status 这一轮确认下来的凭证状态；不给时沿用当前那份（切模式那种场合
+     *   根本没重新确认过凭证，写个别的值等于把上一轮的结论改掉了）。
+     */
+    private suspend fun persist(status: CookieStatus = _state.value.cookieStatus) {
         val current = _state.value
         val cache = OverviewCache(
             cookieStatus = status.name,
@@ -221,13 +244,40 @@ class OverviewViewModel(
             recent = current.recent,
             activities = current.activities,
             account = current.account,
+            // 用户选的模式跟着一起存：下次开 app 那张卡该还是他上次看的那个口径
+            mode = current.mode.name,
             savedAtSec = currentEpochSeconds(),
+            // 今日机甲战也跟着落盘：它是「今天打了几局」，换一次进程就重新翻页去数
+            // 的话，冷启动那一两秒卡片上只能摆个 `—`。日期一起写，跨天自动作废。
+            mechaTodayCount = current.mechaTodayCount,
+            mechaTodayDate = serverDateKey(currentEpochSeconds()),
         )
         runCatching { store.write(StoreKey.OVERVIEW_CACHE, OverviewCacheCodec.encode(cache)) }
     }
 
     fun setMode(mode: OverviewMode) {
         _state.value = _state.value.copy(mode = mode)
+        // ⚠️ 必须**立刻**落盘：模式是用户自己选的、不跟着任何一次刷新走，
+        // 只在 refresh 里顺手存的话，选完就杀进程 / 一直没拉成功的情况下
+        // 下次开 app 又回到默认的「僵尸猎场」，等于没记住。
+        scope.launch { persist() }
+        // 切到「今日机甲战」才去拉：机甲不在日常同步里，这一路是唯一的数据来源，
+        // 每次切回来都要重数（今天打了几局一直在变，只摆缓存是不够的）
+        if (mode == OverviewMode.MECHA_TODAY) scope.launch { loadMechaToday() }
+    }
+
+    /**
+     * 今日机甲战局数。失败时**保留上一次的值**（可能是缓存里那份），不把卡片打回 0 ——
+     * 一次网络抖动就把"今天打了 12 局"变成"0 局"比慢更难受。
+     *
+     * ⚠️ 数完要自己落一次盘：这是唯一能把新数字写进缓存的地方。
+     * [refresh] 里那次 [persist] 在另一个协程上，跟它抢的话存下来的多半还是旧值。
+     */
+    private suspend fun loadMechaToday() {
+        val count = runCatching { repository.loadMechaTodayCount(currentEpochSeconds()) }
+            .getOrNull()
+        _state.value = _state.value.copy(mechaTodayCount = count ?: _state.value.mechaTodayCount)
+        persist()
     }
 
     fun close() {
@@ -255,6 +305,14 @@ internal fun restoreOverviewFromCache(raw: String?, nowSec: Long): OverviewUiSta
         account = cache.account,
         // 缓存可能是几天前写的，里面有些活动已经结束了，先滤掉
         activities = upcomingActivities(cache.activities, nowSec),
+        // 上次选的模式。认不出来（老版本写的缓存里没这个字段）就退回默认那个，
+        // 而不是整份缓存作废——模式和凭证状态无关，不该被它连坐
+        mode = OverviewMode.entries.firstOrNull { it.name == cache.mode } ?: OverviewMode.HUNT,
+        // 今日机甲战：只有"同一天"数出来的才算数。跨天那份是昨天的进度，
+        // 摆上去会让人以为今天已经打过了，所以直接当没数过（卡片显示 `—`）。
+        // 它不是 null 就等于 0：0 是"今天一局没打"，null 是"我还不知道"。
+        mechaTodayCount = cache.mechaTodayCount
+            .takeIf { cache.mechaTodayDate == serverDateKey(nowSec) },
         // 缓存的是「未输入」说明上一次就没登录，那不该显示"正在同步"
         cookieVerifying = status != CookieStatus.MISSING,
     )

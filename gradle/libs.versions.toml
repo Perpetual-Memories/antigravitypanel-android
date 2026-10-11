@@ -1,18 +1,20 @@
 [versions]
 agp = "9.2.1"
-kotlin = "2.4.0"
+# Miuix 0.9.4 是用 Kotlin 2.4.20 + Compose Multiplatform 1.12.0 发布的，
+# 编译器版本跟它对齐，免得 kotlin-stdlib（被拉到 2.4.20）比编译器还新
+kotlin = "2.4.20"
 kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.11.0"
 # KSP 从 2.3.0 起不再挂 Kotlin 版本号；2.3.10 明确修了 Kotlin 2.4.0 的兼容问题
 ksp = "2.3.12"
 
-# Compose Multiplatform：Miuix 0.9.4-rc01 依赖 1.12.0-rc01，统一取正式版 1.12.0
+# Compose Multiplatform：Miuix 0.9.4 依赖 1.12.0，取同一版本
 jetbrains-compose-multiplatform = "1.12.0"
 jetbrains-compose-window-size = "1.9.0"
 jetbrains-lifecycle = "2.10.0"
 
 # 与 HyperIsland 同版本，方便直接照搬它的布局与模糊实现
-miuix = "0.9.4-rc01"
+miuix = "0.9.4"
 vico = "3.3.1"
 
 androidx-activity = "1.13.0"
@@ -44,6 +46,9 @@ miuix-ui = { module = "top.yukonga.miuix.kmp:miuix-ui", version.ref = "miuix" }
 miuix-preference = { module = "top.yukonga.miuix.kmp:miuix-preference", version.ref = "miuix" }
 miuix-blur = { module = "top.yukonga.miuix.kmp:miuix-blur", version.ref = "miuix" }
 miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons", version.ref = "miuix" }
+# squircle：MIUI 那种平滑圆角。二级页跟手时的前缘裁剪要用它，虽然 ui 会传递依赖过来，
+# 但我们是直接当 API 用的（absoluteSquircleClip），显式声明才不算搭车。
+miuix-squircle = { module = "top.yukonga.miuix.kmp:miuix-squircle", version.ref = "miuix" }
 
 # ---- 图表 ----
 vico-compose = { module = "com.patrykandpatrick.vico:compose", version.ref = "vico" }

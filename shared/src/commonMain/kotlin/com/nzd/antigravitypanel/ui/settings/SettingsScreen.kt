@@ -22,7 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nzd.antigravitypanel.data.export.MatchExportFormat
 import com.nzd.antigravitypanel.data.settings.UserSettings
+import com.nzd.antigravitypanel.ui.component.openUrl
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -40,21 +42,36 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Import
+import top.yukonga.miuix.kmp.icon.extended.Share
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.Replace
+import top.yukonga.miuix.kmp.icon.extended.ScreenMirroring
 import top.yukonga.miuix.kmp.icon.extended.Theme
 import top.yukonga.miuix.kmp.icon.extended.Timer
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
+
+/**
+ * 官方 PC 端的下载视频（B 站）。
+ *
+ * ⚠️ 必须带 scheme：`http://www.bilibili.com/...` 这样没有 scheme 的串，
+ * `Uri.parse` 会把它当**相对路径**处理，ACTION_VIEW 匹配不到任何 Activity，
+ * 点了就静默没反应（`openUrl` 内部 `runCatching` 会把异常吃掉）。
+ */
+const val PC_DOWNLOAD_URL = "https://www.bilibili.com/video/BV15Wc9z8ENx/"
 
 data class SettingsUiState(
     val retentionMonths: Int = UserSettings.DEFAULT_RETENTION_MONTHS,
     val autoRefreshMinutes: Int = UserSettings.ON_OPEN,
     /** 「概览页顶栏显示账号信息」（见 `UserSettings.setTopBarAccount`）。 */
     val topBarAccountEnabled: Boolean = UserSettings.DEFAULT_TOP_BAR_ACCOUNT,
+    /** 「用综合分替换经济转化」（见 `UserSettings.setCompositeScore`）。 */
+    val compositeScoreEnabled: Boolean = UserSettings.DEFAULT_COMPOSITE_SCORE,
 )
 
 /**
@@ -80,10 +97,12 @@ fun SettingsScreen(
     onAutoRefreshChange: (Int) -> Unit,
     onRetentionMonthsChange: (Int) -> Unit,
     onTopBarAccountChange: (Boolean) -> Unit,
+    onCompositeScoreChange: (Boolean) -> Unit,
     onClearLocalData: () -> Unit,
     onOpenTheme: () -> Unit,
     onOpenAbout: () -> Unit,
     onImportJson: () -> Unit,
+    onExportMatches: (MatchExportFormat) -> Unit,
     modifier: Modifier = Modifier,
     /** Scaffold 给的顶栏 / 底栏高度。加在滚动容器的上下，内容仍从顶栏底下穿过。 */
     insets: PaddingValues = PaddingValues(0.dp),
@@ -92,12 +111,16 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     // 清空本地数据不可撤销，点一下就把几百场对局抹了 —— 必须再确认一次
     var confirmClear by remember { mutableStateOf(false) }
+    // 导出要先选格式：文件写到哪儿由系统对话框决定，格式只有用户知道想要哪种
+    var exportFormatDialog by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+                .scrollEndHaptic()
                 .padding(horizontal = PagePadding)
                 .padding(
                     top = insets.calculateTopPadding(),
@@ -173,17 +196,44 @@ fun SettingsScreen(
             // 实验性功能放在最后一组之前：它面向本地调试，不该混进日常操作
             SectionTitle(text = "实验性功能")
             PreferenceCard {
+                // 综合分是"同一份数据换一种读法"：不发请求、不改落盘，
+                // 关掉就能原样回到「经济转化」那个比值，所以敢默认开。
+                // 具体算法长按详情页那一格能看到。
+                SwitchPreference(
+                    title = "用综合分替换经济转化",
+                    startAction = { PreferenceIcon(MiuixIcons.Replace) },
+                    insideMargin = SettingsItemMargin,
+                    checked = state.compositeScoreEnabled,
+                    onCheckedChange = onCompositeScoreChange,
+                )
                 ArrowPreference(
                     title = "导入数据",
                     startAction = { PreferenceIcon(MiuixIcons.Import) },
                     insideMargin = SettingsItemMargin,
                     onClick = onImportJson,
                 )
+                ArrowPreference(
+                    title = "导出历史战绩",
+                    startAction = { PreferenceIcon(MiuixIcons.Share) },
+                    insideMargin = SettingsItemMargin,
+                    onClick = { exportFormatDialog = true },
+                )
             }
 
-            // 「关于」永远最后一项：它不是操作，是出口
+            // 「其他」放在最后一组，「关于」永远最后一项：它不是操作，是出口
             SectionTitle(text = "其他")
             PreferenceCard {
+                // PC 端是另一个包，但用户找它就是从设置页找 ——
+                // 放在「关于」上面，先给"还想装别的"再给"这是什么"。
+                // 标题写「了解PC 端」而不是「下载」：点开的是一个介绍视频，
+                // 写"下载"会让人以为点下去就开始装，而这里其实什么都没下。
+                ArrowPreference(
+                    // 标题带上 App 全名：光说「PC 端」用户还得猜是哪个 PC 端
+                    title = "了解PC 端《反重力数据面板》",
+                    startAction = { PreferenceIcon(MiuixIcons.ScreenMirroring) },
+                    insideMargin = SettingsItemMargin,
+                    onClick = { openUrl(PC_DOWNLOAD_URL) },
+                )
                 ArrowPreference(
                     title = "关于",
                     startAction = { PreferenceIcon(MiuixIcons.Info) },
@@ -214,6 +264,59 @@ fun SettingsScreen(
             onClearLocalData()
         },
     )
+
+    ExportFormatDialog(
+        show = exportFormatDialog,
+        onDismiss = { exportFormatDialog = false },
+        onPick = { format ->
+            exportFormatDialog = false
+            onExportMatches(format)
+        },
+    )
+}
+
+/**
+ * 选导出格式。
+ *
+ * 只有两个按钮，不给单选列表：这里是"选完立刻弹保存位置"，多一步确认没意义。
+ * 说明文字里把"哪些局才有后半段数据"讲清楚 —— 否则导出来的表有一半是空的，
+ * 用户只会以为是导出坏了。
+ */
+@Composable
+private fun ExportFormatDialog(
+    show: Boolean,
+    onDismiss: () -> Unit,
+    onPick: (MatchExportFormat) -> Unit,
+) {
+    WindowDialog(
+        show = show,
+        title = "导出历史战绩",
+        onDismissRequest = onDismiss,
+    ) {
+        Text(
+            text = "导出本机保存的全部对局。打开过详情页的对局会补上金币、" +
+                "Boss 伤害、配装等单局数据，没有的就留空。内容全部使用英文和数字。",
+            fontSize = 14.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Row(modifier = Modifier.padding(top = 16.dp)) {
+            Button(
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(),
+                onClick = { onPick(MatchExportFormat.CSV) },
+            ) {
+                Text("CSV")
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Button(
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(),
+                onClick = { onPick(MatchExportFormat.JSON) },
+            ) {
+                Text("JSON")
+            }
+        }
+    }
 }
 
 /**

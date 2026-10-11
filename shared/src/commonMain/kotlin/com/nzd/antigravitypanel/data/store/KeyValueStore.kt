@@ -70,6 +70,22 @@ object StoreKey {
     const val MAP_SEASON_FILTER_TOWER = "map_season_filter_tower"
 
     /**
+     * 地图分布页「官方统计」的缓存（`data.repo.MapStatsCache` 的 JSON）。
+     *
+     * 缓存它才不会在冷启动同步的那几秒里先摆一份本地场次（和小程序对不上的那个数）。
+     * 里面只有地图 id 和场次，不含凭证，放在这个加密存储里只是图省事。
+     */
+    const val MAP_STATS_CACHE = "map_stats_cache"
+
+    /**
+     * 地图分布页掉落物的缓存（`data.repo.MapDropsCache` 的 JSON）。
+     *
+     * 理由同 [MAP_STATS_CACHE]：卡片背面的收集进度不该因为"凭证还没挂上"
+     * 先显示一句「还没有设置 cookie」。
+     */
+    const val MAP_DROPS_CACHE = "map_drops_cache"
+
+    /**
      * 最近一次 JSON 导入的摘要文案，同时兼作"有没有导入过"的标志位。
      * 存文案而不是布尔 + 数字：设置页要显示它，概览页只要判断它在不在。
      */
@@ -159,6 +175,13 @@ object StoreKey {
 
     /** 「概览页顶栏显示账号信息」开关。**只有 "0" 才是关**——默认开。 */
     const val TOP_BAR_ACCOUNT = "top_bar_account"
+
+    /**
+     * 「用综合分替换经济转化」开关。**只有 "0" 才是关**——默认开。
+     *
+     * 见 [com.nzd.antigravitypanel.data.settings.UserSettings.setCompositeScore]。
+     */
+    const val COMPOSITE_SCORE = "composite_score"
 
     /**
      * Build 计划（[com.nzd.antigravitypanel.data.build.BuildPlan] 的 JSON）。

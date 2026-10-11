@@ -21,6 +21,9 @@ import com.nzd.antigravitypanel.ui.component.ActivityRow
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
+import com.nzd.antigravitypanel.ui.component.TopBarGlassAnchor
+import com.nzd.antigravitypanel.ui.component.TopBarGlassBackButton
+import com.nzd.antigravitypanel.ui.component.TopBarGlassPlaceholder
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -33,9 +36,9 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
@@ -60,27 +63,32 @@ fun ActivityListScreen(
     var selected by remember { mutableStateOf<ActivityEvent?>(null) }
     val scrollBehavior = MiuixScrollBehavior()
     val pullToRefreshState = rememberPullToRefreshState()
+    // 返回键玻璃的定位锚点：位置由顶栏槽位里那个占位上报。
+    // 玻璃必须画在顶栏**外面**那层不被裁的 overlay 上 —— Miuix 顶栏自带
+    // clipToBounds，溢出到 42dp 之外的阴影会被切成一条直边。
+    val backGlassAnchor = remember { TopBarGlassAnchor() }
 
     BarBlurHost(enabled = liquidGlassEnabled) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                BlurredBar(topGradient = true) {
+                BlurredBar(
+                    topGradient = true,
+                    startGlassAnchor = backGlassAnchor,
+                    startGlass = {
+                        TopBarGlassBackButton(
+                            onBack = onBack,
+                            scrollBehavior = scrollBehavior,
+                        )
+                    },
+                ) {
                     SmallTopAppBar(
                         title = "活动日历",
                         // 透明是必须的：底下一层 BlurredBar 已经在采样列表内容做模糊了，
                         // 这里再铺一层 surface 就把它彻底盖死，糊了等于没糊
                         color = Color.Transparent,
                         scrollBehavior = scrollBehavior,
-                        navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(
-                                    imageVector = MiuixIcons.Back,
-                                    contentDescription = "返回",
-                                    tint = MiuixTheme.colorScheme.onSurface,
-                                )
-                            }
-                        },
+                        navigationIcon = { TopBarGlassPlaceholder(backGlassAnchor) },
                     )
                 }
             },
@@ -109,6 +117,8 @@ fun ActivityListScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .overScrollVertical()
+                            // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+                            .scrollEndHaptic()
                             .nestedScroll(scrollBehavior.nestedScrollConnection),
                         contentPadding = contentPadding,
                     ) {

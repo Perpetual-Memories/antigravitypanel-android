@@ -50,6 +50,15 @@ interface MatchDao {
     @Query("SELECT * FROM matches ORDER BY eventTimeSec DESC, roomId DESC")
     fun observeAll(): Flow<List<MatchEntity>>
 
+    /**
+     * 导出用：整表一次性读出来。
+     *
+     * 不走 [page] 是刻意的——导出要的就是全部，分页反而要先把总数查一遍。
+     * 几千行一次读进来没问题（历史页本来就把整表常驻在内存里）。
+     */
+    @Query("SELECT * FROM matches ORDER BY eventTimeSec DESC, roomId DESC")
+    suspend fun all(): List<MatchEntity>
+
     @Query("SELECT COUNT(*) FROM matches")
     fun observeCount(): Flow<Long>
 

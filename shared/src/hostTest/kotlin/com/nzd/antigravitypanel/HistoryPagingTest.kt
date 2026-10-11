@@ -58,6 +58,7 @@ class HistoryPagingTest {
 
         override suspend fun page(limit: Int, offset: Int): List<MatchEntity> = emptyList()
         override fun observeAll(): Flow<List<MatchEntity>> = source
+        override suspend fun all(): List<MatchEntity> = source.value
         override fun observeCount(): Flow<Long> = emptyFlow()
         override suspend fun count(): Long = source.value.size.toLong()
         override suspend fun oldestTimeSec(): Long? = null
@@ -73,6 +74,7 @@ class HistoryPagingTest {
     private class FakeBossStatDao : MatchBossStatDao {
         override suspend fun upsert(item: MatchBossStatEntity) = Unit
         override fun observeAll(): Flow<List<MatchBossStatEntity>> = emptyFlow()
+        override suspend fun all(): List<MatchBossStatEntity> = emptyList()
         override suspend fun knownRoomIds(): List<String> = emptyList()
         override suspend fun deleteOrphans(): Int = 0
         override suspend fun clear() = Unit

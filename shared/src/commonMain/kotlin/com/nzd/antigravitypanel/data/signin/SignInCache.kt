@@ -32,6 +32,16 @@ data class SignInCache(
      * 比摆一个"什么都没有"更接近真相，等这一轮拉到新的再覆盖。
      */
     val totalScore: Int? = null,
+    /**
+     * 任务中心「每日完成1局」那一条的今日结论。
+     *
+     * 和 [totalScore] 相反，它**只在日期还对得上今天时才作数**（见 [toStatus]）：
+     * 它是按天重置的，昨天"奖励已领取"摆到今天就是一句假话。
+     *
+     * 存它就是为了首页那张卡：领完了以后再开 app，第一帧就该直接打勾，
+     * 而不是先不显示、等这一轮拉完才补上。
+     */
+    val dailyTask: WelfareTaskState? = null,
     val savedAtSec: Long = 0,
 )
 
@@ -58,30 +68,36 @@ fun SignInStatus.toCache(nowSec: Long): SignInCache = SignInCache(
     monthTarget = monthTarget,
     todayGiftName = todayGiftName,
     totalScore = totalScore,
+    // 「每日完成1局」跟着日期一起落盘：跨天由 [toStatus] 判定它作废
+    dailyTask = dailyTask,
     savedAtSec = nowSec,
 )
 
 /**
  * 缓存 → 展示模型。
  *
- * [SignInStatus.dailyTask] **不落盘**：它是按天重置的，昨天的"奖励已领取"
- * 摆到今天就是一句假话——宁可这一屏先不显示它，等拉到今天的再说。
+ * 日期对不上今天（缓存是昨天写的）时不改数字，只把两件**按天重置**的事作废：
+ * - [SignInStatus.signedToday]：跨天后"昨天签过了"不该让今天显示成已签
+ * - [SignInStatus.dailyTask]：昨天的"奖励已领取"摆到今天是假话，直接置回 null，
+ *   宁可这一屏先不显示它，等拉到今天的再说
  *
- * 日期对不上今天（缓存是昨天写的）时不改数字，只把 [SignInStatus.signedToday]
- * 置回 false —— 跨天后"昨天签过了"不该让今天显示成已签。
  * 数字本身留着：连续天数之类的要等拉到新数据才能更新，摆一份旧的比摆 0 靠谱。
  *
  * @param todayKey 今天的日期键，形如 `20260921`（[com.nzd.antigravitypanel.util.serverDateKey]）。
  *   缓存里的 [SignInCache.date] 是服务端原样的 `2026-09-21`，比较前先抹掉横线。
  */
-fun SignInCache.toStatus(todayKey: String): SignInStatus = SignInStatus(
-    date = date,
-    signedToday = signedToday && date.replace("-", "") == todayKey,
-    continuousDays = continuousDays,
-    totalDays = totalDays,
-    totalTarget = totalTarget,
-    monthDays = monthDays,
-    monthTarget = monthTarget,
-    todayGiftName = todayGiftName,
-    totalScore = totalScore,
-)
+fun SignInCache.toStatus(todayKey: String): SignInStatus {
+    val sameDay = date.replace("-", "") == todayKey
+    return SignInStatus(
+        date = date,
+        signedToday = signedToday && sameDay,
+        continuousDays = continuousDays,
+        totalDays = totalDays,
+        totalTarget = totalTarget,
+        monthDays = monthDays,
+        monthTarget = monthTarget,
+        todayGiftName = todayGiftName,
+        totalScore = totalScore,
+        dailyTask = dailyTask.takeIf { sameDay },
+    )
+}

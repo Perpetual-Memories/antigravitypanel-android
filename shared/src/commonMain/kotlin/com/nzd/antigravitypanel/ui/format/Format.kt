@@ -1,5 +1,7 @@
 package com.nzd.antigravitypanel.ui.format
 
+import kotlin.math.abs
+
 /**
  * 展示用的数字 / 时间格式化。
  *
@@ -96,6 +98,36 @@ fun formatCoinPerMinute(coin: Long, durationSec: Int): String {
 fun formatDamagePerWanCoin(bossDamage: Long, coin: Long): String {
     if (bossDamage <= 0 || coin <= 0) return "—"
     return trimDecimal(bossDamage.toDouble() / coin.toDouble())
+}
+
+/**
+ * 综合分：0~1 的小数，固定两位（`0.52`）。
+ *
+ * 只为"算不出来"留 `—`：这一格替换的是「经济转化」，那边的规矩是
+ * "除不出来就别摆一个 0 上去"，这里照旧 —— 0 会被读成"这人一点贡献没有"。
+ * 两位小数够用（一格只有四个字宽，再多就要换行了），且不挂单位：它是个比值。
+ */
+fun formatCompositeScore(score: Double?): String {
+    if (score == null || score.isNaN() || score.isInfinite()) return "—"
+    return formatDecimal(score.coerceIn(0.0, 1.0), 2)
+}
+
+/**
+ * 固定小数位（`0.370` / `12.50`）。给弹综合分算式那种"把中间值摆出来"的地方用。
+ *
+ * 不用 `String.format("%.2f", v)`：那个走的是平台默认 Locale，
+ * 在把逗号当小数点的语言环境下会写出 `0,52`，而这一列别的值都是点号。
+ * 四舍五入而不是截断（[trimDecimal] 是截断）：中间值要能对得上用户自己按计算器的结果。
+ */
+fun formatDecimal(value: Double, digits: Int): String {
+    if (value.isNaN() || value.isInfinite()) return "—"
+    val negative = value < 0.0
+    var factor = 1L
+    repeat(digits) { factor *= 10L }
+    val scaled = (abs(value) * factor + 0.5).toLong()
+    val whole = scaled / factor
+    val frac = (scaled % factor).toString().padStart(digits, '0')
+    return (if (negative) "-" else "") + "$whole.$frac"
 }
 
 /**

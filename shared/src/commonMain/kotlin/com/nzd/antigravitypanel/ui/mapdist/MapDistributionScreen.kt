@@ -67,6 +67,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 private val MODE_TABS = listOf(GameMode.HUNT, GameMode.TOWER, GameMode.TIME_HUNT)
 
@@ -149,7 +150,9 @@ fun MapDistributionScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .overScrollVertical(),
+            .overScrollVertical()
+            // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+            .scrollEndHaptic(),
         contentPadding = PaddingValues(
             start = 12.dp,
             top = 12.dp + insets.calculateTopPadding(),

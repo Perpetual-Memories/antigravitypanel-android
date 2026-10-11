@@ -52,6 +52,18 @@ data class SignInUiState(
  *
  * 任务中心的每日 / 每周奖励是**另一件事**：它和签没签到无关，没签到的日子也照样能领。
  * 所以两条路各自去重，互不阻塞——签到失败不影响领奖励，领奖励失败也不该把签到卡打没。
+ *
+ * **领取时机**（宿主那边按这个接线，别只留冷启动一条）：
+ * - 冷启动 / 刚登录
+ * - 顶栏那个刷新按钮
+ * - 两个开关里任一个被打开
+ *
+ * 只留冷启动的话，「每日完成1局」会是"早上开了 app（那时还没打完那一局），
+ * 白天打完了再点刷新也不去领"，非得杀掉 app 重开才拿得到。
+ *
+ * 重复跑不会有副作用：签到按「日期|openid」去重；任务那边只挑服务端标了
+ * `isfinished && !isawarded` 的去领，**已经领完的压根不会进领取请求**。
+ * 今天领完再开 app 时首页直接打勾，靠的是缓存里那份 [SignInStatus.dailyTask]。
  */
 class SignInViewModel(
     api: NzApi,
@@ -168,27 +180,6 @@ class SignInViewModel(
             error = null,
         )
         repository.writeCache(outcome.status)
-    }
-
-    /**
-     * 概览的下拉刷新也要带上这里：顶栏那个刷新按钮是"整页重拉"，
-     * 只重刷概览却让签到卡继续显示旧数字，看着像刷新没生效。
-     *
-     * 这里**不**签到也**不**领奖励：下拉是"刷新"，不是"帮我操作"。
-     */
-    fun refreshBoardOnly(cookie: MiniProgramCredential?) {
-        if (cookie == null) return
-        scope.launch {
-            runCatching { repository.load(cookie, _state.value.status) }
-                .onSuccess { status ->
-                    _state.value = _state.value.copy(
-                        status = status,
-                        available = true,
-                        error = null,
-                    )
-                    repository.writeCache(status)
-                }
-        }
     }
 
     /** 领到东西那句话只说一次。 */

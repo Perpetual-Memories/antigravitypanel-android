@@ -2,6 +2,8 @@ package com.nzd.antigravitypanel.data.repo
 
 import com.nzd.antigravitypanel.data.db.MatchBossStatDao
 import com.nzd.antigravitypanel.data.db.MatchBossStatEntity
+import com.nzd.antigravitypanel.data.db.cachedDetailOf
+import com.nzd.antigravitypanel.data.db.encodeCachedDetail
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.remote.dto.GameDetailDto
 import com.nzd.antigravitypanel.util.currentEpochSeconds
@@ -28,6 +30,10 @@ class MatchBossStats(
     fun observe(): Flow<Map<String, MatchBossStatEntity>> =
         dao.observeAll().map { rows -> rows.associateBy { it.roomId } }
 
+    /** 导出用：整表快照。读失败就当一份空的，导出不该因为缓存表挂了而整体失败。 */
+    suspend fun snapshot(): Map<String, MatchBossStatEntity> =
+        runCatching { dao.all() }.getOrDefault(emptyList()).associateBy { it.roomId }
+
     /** 没有凭证时补拉是无意义的（接口会直接抛缺凭证），调用方用它挡一道。 */
     fun hasCredential(): Boolean = api.hasCookie()
 
@@ -50,8 +56,11 @@ class MatchBossStats(
      */
     suspend fun record(roomId: String, detail: GameDetailDto): MatchBossStatEntity? {
         val entity = bossStatOf(roomId, detail, currentEpochSeconds()) ?: return null
-        runCatching { dao.upsert(entity) }
-        return entity
+        // 详情已经拿在手里了，顺手把导出要用的那部分也存进去 ——
+        // 那个接口一次只查一局、配额有限，不趁现在存以后就没有第二次机会了
+        val saved = entity.copy(payloadJson = cachedDetailOf(detail)?.let(::encodeCachedDetail))
+        runCatching { dao.upsert(saved) }
+        return saved
     }
 
     /** 补拉前的去重基准：库里已经有的（含"试过但没数据"的）都列出来。 */

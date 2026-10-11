@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.build.BuildPlan
+import com.nzd.antigravitypanel.data.repo.MECHA_TODAY_GOAL
 import com.nzd.antigravitypanel.data.repo.OverviewMode
 import com.nzd.antigravitypanel.data.repo.RecentFive
 import com.nzd.antigravitypanel.data.repo.countOf
@@ -64,6 +65,7 @@ import top.yukonga.miuix.kmp.popup.OverlayDropdownPopup
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
@@ -120,7 +122,9 @@ fun OverviewScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .overScrollVertical(),
+            .overScrollVertical()
+            // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+            .scrollEndHaptic(),
         contentPadding = PaddingValues(
             start = 12.dp,
             top = if (inlineTitle != null) {
@@ -167,6 +171,7 @@ fun OverviewScreen(
                 status = state.cookieStatus,
                 mode = state.mode,
                 modeCount = state.stats.countOf(state.mode),
+                mechaTodayCount = state.mechaTodayCount,
                 playtimeSec = state.stats.playtime,
                 verifying = state.cookieVerifying,
                 onOpenAccountDetail = onOpenAccountDetail,
@@ -179,6 +184,8 @@ fun OverviewScreen(
                 status = signInState.status,
                 available = signInState.available,
                 loading = signInState.loading,
+                // 小程序那块这一轮拉失败的原因。非空时第一行打叉，不能还挂着勾
+                signInError = signInState.error,
                 qqStatus = qqState.status,
                 qqAvailable = qqState.available,
                 qqBound = qqState.bound,
@@ -385,6 +392,11 @@ private fun StatusGrid(
     status: CookieStatus,
     mode: OverviewMode,
     modeCount: Int,
+    /**
+     * 今日机甲战局数。只有在 [mode] 是 [OverviewMode.MECHA_TODAY] 时才用得上；
+     * null = 还没问到（不是 0）。
+     */
+    mechaTodayCount: Int?,
     playtimeSec: Long,
     verifying: Boolean,
     onOpenAccountDetail: () -> Unit,
@@ -436,9 +448,22 @@ private fun StatusGrid(
                     .weight(1f)
                     .fillMaxWidth(),
             ) {
+                // 「今日机甲战」那一格是另一种口径：标题不带「总局数」，
+                // 值写成 `n / [MECHA_TODAY_GOAL] 场`（分母只认那个常量，别在这里另写数字），
+                // 并按有没有达标变色
+                val mechaToday = mode == OverviewMode.MECHA_TODAY
                 StatCard(
-                    title = "${mode.label}总局数",
-                    value = "$modeCount 场",
+                    title = if (mechaToday) mode.label else "${mode.label}总局数",
+                    value = if (mechaToday) {
+                        "${mechaTodayCount ?: "—"} / $MECHA_TODAY_GOAL 场"
+                    } else {
+                        "$modeCount 场"
+                    },
+                    valueColor = if (mechaToday && mechaTodayCount != null) {
+                        mechaTodayColor(mechaTodayCount)
+                    } else {
+                        MiuixTheme.colorScheme.onSurface
+                    },
                     modifier = Modifier.fillMaxSize(),
                     onClick = { modeMenu = true },
                 )
@@ -461,6 +486,19 @@ private fun StatusGrid(
             )
         }
     }
+}
+
+/**
+ * 「今日机甲战」那个数的颜色：**没够 [MECHA_TODAY_GOAL] 场是红，够了是绿**。
+ *
+ * 红直接用主题的 `error`（它就是"没达标 / 有问题"那一档）；
+ * 绿只能自己给 —— Miuix 没有"达标"这个语义色，而 `primary` 是蓝的。
+ * ⚠️ 绿分深浅两套：深色模式下暗绿压在灰卡上读不出来，浅色模式下亮绿又会糊成一片。
+ */
+@Composable
+private fun mechaTodayColor(count: Int): Color {
+    if (count < MECHA_TODAY_GOAL) return MiuixTheme.colorScheme.error
+    return if (isInDarkTheme()) Color(0xFF4CD964) else Color(0xFF1E8E3E)
 }
 
 /**

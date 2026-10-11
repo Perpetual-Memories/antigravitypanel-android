@@ -2,7 +2,9 @@ package com.nzd.antigravitypanel
 
 import com.nzd.antigravitypanel.ui.format.formatCoinPerMinute
 import com.nzd.antigravitypanel.ui.format.formatCompact
+import com.nzd.antigravitypanel.ui.format.formatCompositeScore
 import com.nzd.antigravitypanel.ui.format.formatCountdownClock
+import com.nzd.antigravitypanel.ui.format.formatDecimal
 import com.nzd.antigravitypanel.ui.format.formatDamagePerWanCoin
 import com.nzd.antigravitypanel.ui.format.formatDateTimeShort
 import com.nzd.antigravitypanel.ui.format.formatDuration
@@ -72,6 +74,22 @@ class FormatTest {
         assertEquals("0.5", formatDamagePerWanCoin(500_000, 1_000_000))
         assertEquals("—", formatDamagePerWanCoin(0, 300_000))
         assertEquals("—", formatDamagePerWanCoin(5_000_000, 0))
+    }
+
+    /** 固定小数位：四舍五入，且**不走平台 Locale**（有的语言小数点是逗号）。 */
+    @Test
+    fun decimalKeepsFixedDigitsAndRounds() {
+        assertEquals("0.370", formatDecimal(0.3701, 3))
+        assertEquals("37.0", formatDecimal(37.04, 1))
+        assertEquals("-1.25", formatDecimal(-1.25, 2))
+        assertEquals("—", formatDecimal(Double.NaN, 2))
+    }
+
+    /** 综合分是 0~1 的比值，两位小数，算不出来给「—」。 */
+    @Test
+    fun compositeScoreHasNoUnit() {
+        assertEquals("0.52", formatCompositeScore(0.523))
+        assertEquals("—", formatCompositeScore(null))
     }
 
     @Test

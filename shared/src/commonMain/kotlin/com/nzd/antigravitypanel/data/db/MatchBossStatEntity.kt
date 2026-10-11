@@ -33,4 +33,15 @@ data class MatchBossStatEntity(
     val rivalBossDamage: Long = 0,
     @ColumnInfo(name = "updatedAtSec")
     val updatedAtSec: Long = 0,
+    /**
+     * 这一局详情里**其余**能拿到的东西，序列化成 JSON 存（见 [CachedMatchDetail]）。
+     *
+     * 金币 / 小怪伤害 / 分区用时 / 配装这些和上面三个数同源，但只有导出会用到，
+     * 给它们各开一列意味着每加一个数就要写一次迁移 —— 整块存是一种妥协：
+     * 字段只增不删、全部带默认值，老行照样能解出来。
+     *
+     * null = 这份详情是老版本写的（升级前拉到的），或者当时就没存成功。
+     */
+    @ColumnInfo(name = "payloadJson")
+    val payloadJson: String? = null,
 )

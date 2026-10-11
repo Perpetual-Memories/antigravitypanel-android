@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -15,6 +17,9 @@ import androidx.compose.ui.unit.dp
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
+import com.nzd.antigravitypanel.ui.component.TopBarGlassAnchor
+import com.nzd.antigravitypanel.ui.component.TopBarGlassBackButton
+import com.nzd.antigravitypanel.ui.component.TopBarGlassPlaceholder
 import com.nzd.antigravitypanel.ui.theme.ColorMode
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -31,6 +36,7 @@ import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 /**
  * 主题的二级详情页。
@@ -71,13 +77,28 @@ fun ThemeSettingsScreen(
     val monetEnabled = colorMode >= ColorMode.MONET_SYSTEM
     val baseMode = if (monetEnabled) colorMode - ColorMode.MONET_SYSTEM else colorMode
     val scrollBehavior = MiuixScrollBehavior()
+    // 同引用页：整页装得下时滚不动，玻璃靠「顶部下拉回弹」那条判据出来，
+    // 所以下面那个 LazyColumn **必须**挂 `.overScrollVertical()`。
+    val listState = rememberLazyListState()
+    // 返回键那颗玻璃画在顶栏**外面**那层（顶栏自带 clipToBounds 会裁掉阴影），
+    // 槽位里只留一个占位撑住标题，位置由它上报。
+    val backGlassAnchor = remember { TopBarGlassAnchor() }
 
     // 骨架和活动日历的二级页一致：BarBlurHost → Scaffold(BlurredBar + SmallTopAppBar)
     // → BarBackdropContent → 列表。少了中间那层 backdrop，磨砂就只能糊到一层纯色。
     BarBlurHost(enabled = liquidGlassEnabled) {
         Scaffold(
             topBar = {
-                BlurredBar(topGradient = true) {
+                BlurredBar(
+                    topGradient = true,
+                    startGlassAnchor = backGlassAnchor,
+                    startGlass = {
+                        TopBarGlassBackButton(
+                            onBack = onBack,
+                            scrollBehavior = scrollBehavior,
+                        )
+                    },
+                ) {
                     SmallTopAppBar(
                         title = "主题",
                         // 透明是必须的：底下 BlurredBar 已经在采样列表内容做模糊了，
@@ -85,13 +106,7 @@ fun ThemeSettingsScreen(
                         color = Color.Transparent,
                         scrollBehavior = scrollBehavior,
                         navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(
-                                    imageVector = MiuixIcons.Back,
-                                    contentDescription = "返回",
-                                    tint = MiuixTheme.colorScheme.onSurface,
-                                )
-                            }
+                            TopBarGlassPlaceholder(backGlassAnchor)
                         },
                     )
                 }
@@ -99,9 +114,12 @@ fun ThemeSettingsScreen(
         ) { innerPadding ->
             BarBackdropContent(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .overScrollVertical()
+                        // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+                        .scrollEndHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
                     contentPadding = PaddingValues(
                         start = 16.dp,

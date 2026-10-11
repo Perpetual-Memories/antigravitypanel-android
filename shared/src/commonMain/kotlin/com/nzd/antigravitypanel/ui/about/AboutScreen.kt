@@ -1,8 +1,11 @@
 package com.nzd.antigravitypanel.ui.about
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.nzd.antigravitypanel.data.update.DOWNLOAD_EXTRACT_CODE
 import com.nzd.antigravitypanel.data.update.DOWNLOAD_PAGE_URL
 import com.nzd.antigravitypanel.data.update.UpdateRepository
@@ -51,6 +55,9 @@ import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
 import com.nzd.antigravitypanel.ui.component.DEFAULT_PREDICTIVE_BACK_TRANSLATION_PERCENT
 import com.nzd.antigravitypanel.ui.component.LocalBarBlurBackdrop
+import com.nzd.antigravitypanel.ui.component.TopBarGlassAnchor
+import com.nzd.antigravitypanel.ui.component.TopBarGlassBackButton
+import com.nzd.antigravitypanel.ui.component.TopBarGlassPlaceholder
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackHandler
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackdrop
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayer
@@ -86,22 +93,55 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Community
+import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Link
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /** 项目仓库。关于页的「GitHub」条目点开的就是它，summary 里去掉了协议头。 */
 private const val PROJECT_URL = "https://github.com/Perpetual-Memories/antigravitypanel-android"
 
-/** 开发者主页：卡片尾部是 `>` 而不是外链图标，语义上和"跳仓库"不一样。 */
-private const val DEVELOPER_URL = "https://github.com/Perpetual-Memories"
+/**
+ * 一位开发者。
+ *
+ * @param avatarUrl 头像地址。**null = 用包里那张本地图**（[developerAvatarPainter]），
+ *   非 null 走 `AsyncImage` 去拉。第一位是本地图是因为那张图本来就在包里，
+ *   再走一趟网络只是给自己多一个"可能失败"的环节。
+ */
+private data class Developer(
+    val name: String,
+    val handle: String,
+    val url: String,
+    val avatarUrl: String? = null,
+)
+
+/**
+ * 开发者列表。顺序即卡片上的顺序。
+ *
+ * ⚠️ GitHub 头像用 `https://github.com/<用户名>.png` 这个固定入口：
+ * 它会 302 到 `avatars.githubusercontent.com`，**不用自己拼那个 CDN 域名** ——
+ * 官方换的是重定向目标，这个入口一直是好的。
+ * 而且必须是 `https`：app 没开明文流量，`http://` 会被系统直接拦掉，Coil 静默失败。
+ */
+private val DEVELOPERS = listOf(
+    Developer(
+        name = "永恒的回忆",
+        handle = "@Perpetual Memories",
+        url = "https://github.com/Perpetual-Memories",
+    ),
+    Developer(
+        name = "哈曼曼曼曼曼",
+        handle = "@HaMan412",
+        url = "https://github.com/HaMan412",
+        avatarUrl = "https://github.com/HaMan412.png",
+    ),
+)
 private const val QQ_GROUP = "1004721478"
 
 private val DISCLAIMER_LINES = listOf(
@@ -205,6 +245,9 @@ fun AboutScreen(
         derivedStateOf { barBackdrop != null && scrollProgress == 1f }
     }
 
+    // 返回键玻璃的定位锚点：位置由顶栏槽位里那个占位上报（见 BarBlur.kt 的 TopBarGlassLayer）。
+    val backGlassAnchor = remember { TopBarGlassAnchor() }
+
     BarBlurHost(enabled = liquidGlassEnabled) {
         Scaffold(
             topBar = {
@@ -217,22 +260,28 @@ fun AboutScreen(
                     alpha = ((scrollProgress - 0.35f) / 0.65f).coerceIn(0f, 1f),
                 )
                 // 没滚到顶之前连底色都不铺：顶栏就那么浮在渐变上，标题还是隐形的
-                BlurredBar(topGradient = true, enabled = blurActive) {
+                BlurredBar(
+                    topGradient = true,
+                    enabled = blurActive,
+                    // 返回键的玻璃画在顶栏**外面**那层不被裁的 overlay 上：
+                    // Miuix 顶栏自带 clipToBounds，阴影画不全（会被切成一条直边）。
+                    // 槽位里只留占位撑住标题，位置由它上报给锚点 ——
+                    // 这一页还把 defaultWindowInsetsPadding 关了，位置更不能靠算。
+                    startGlassAnchor = backGlassAnchor,
+                    startGlass = {
+                        TopBarGlassBackButton(
+                            onBack = onBack,
+                            scrollBehavior = topAppBarScrollBehavior,
+                        )
+                    },
+                ) {
                     SmallTopAppBar(
                         title = "关于",
                         scrollBehavior = topAppBarScrollBehavior,
                         color = barColor,
                         titleColor = titleColor,
                         defaultWindowInsetsPadding = false,
-                        navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(
-                                    imageVector = MiuixIcons.Back,
-                                    contentDescription = "返回",
-                                    tint = MiuixTheme.colorScheme.onSurface,
-                                )
-                            }
-                        },
+                        navigationIcon = { TopBarGlassPlaceholder(backGlassAnchor) },
                     )
                 }
             },
@@ -458,6 +507,8 @@ private fun AboutContent(
             modifier = Modifier
                 .fillMaxSize()
                 .overScrollVertical()
+                // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+                .scrollEndHaptic()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(
                 top = scrollPadding.calculateTopPadding(),
@@ -541,52 +592,114 @@ private fun AboutContent(
 }
 
 /**
- * 开发者卡片。尾部的图标是 `>`（[ArrowRight]）而不是 🔗：
- * 它点开的是个人主页，语义上和"跳外链"不一样，HyperIsland 也是这么画的。
+ * 开发者卡片。**一人一行**，行与行之间一条分隔线。
+ *
+ * ⚠️ 按压反馈在**每一行**上，不在整张卡上：两位开发者各跳各的主页，
+ * 卡片整体可点的话就没法区分点的是谁。所以这里用 `clickable` + `LocalIndication`
+ * 自己铺反馈，而不是 `Card(onClick = …)`。
+ *
+ * 尾部的图标是 `>`（[ArrowRight]）而不是 🔗：它点开的是个人主页，
+ * 语义上和"跳外链"不一样，HyperIsland 也是这么画的。
  */
 @Composable
 private fun DeveloperCard() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(),
-        pressFeedbackType = PressFeedbackType.Sink,
-        onClick = { openUrl(DEVELOPER_URL) },
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        DEVELOPERS.forEachIndexed { index, developer ->
+            if (index > 0) {
+                // 分隔线：项目没引入 material3，照概览签到卡那样用一块 1dp 的方块画
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 18.dp)
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MiuixTheme.colorScheme.surfaceVariant),
+                )
+            }
+            DeveloperRow(developer)
+        }
+    }
+}
+
+@Composable
+private fun DeveloperRow(developer: Developer) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = LocalIndication.current,
+                onClick = { openUrl(developer.url) },
+            )
+            .padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DeveloperAvatar(avatarUrl = developer.avatarUrl)
+        Column(modifier = Modifier.padding(start = 14.dp)) {
+            Text(
+                text = developer.name,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = developer.handle,
+                modifier = Modifier.padding(top = 1.dp),
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Icon(
+            imageVector = MiuixIcons.Basic.ArrowRight,
+            contentDescription = null,
+            modifier = Modifier.size(width = 10.dp, height = 16.dp),
+            tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+        )
+    }
+}
+
+/**
+ * 圆形头像。
+ *
+ * ⚠️ 底圈**永远先画上**，图片叠在它上面（和概览顶栏那个账号头像同一个套路）：
+ * 取图失败时留下来的是一个灰圈 + 人像图标，而不是一块让人以为 app 坏了的空白。
+ * Coil 的 `AsyncImage` 失败是**静默**的，不给兜底就完全没有痕迹。
+ */
+@Composable
+private fun DeveloperAvatar(avatarUrl: String?) {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .border(2.dp, Color.White.copy(alpha = 0.68f), CircleShape)
+            .background(MiuixTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (avatarUrl == null) {
             Image(
                 painter = developerAvatarPainter(),
                 contentDescription = "开发者头像",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, Color.White.copy(alpha = 0.68f), CircleShape),
+                modifier = Modifier.fillMaxSize(),
             )
-            Column(modifier = Modifier.padding(start = 14.dp)) {
-                Text(
-                    text = "永恒的回忆",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = "@Perpetual Memories",
-                    modifier = Modifier.padding(top = 1.dp),
-                    fontSize = 14.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Spacer(modifier = Modifier.weight(1f))
+        } else {
+            // ⚠️ 兜底的人像图标必须写在 AsyncImage **之前**：Box 里后声明的画在上层，
+            // 写在后面就会盖在头像上。AsyncImage 加载成功时会铺满不透明，
+            // 这一层自然被挡住；失败 / 还没回来时它就是那块灰圈里的人影。
             Icon(
-                imageVector = MiuixIcons.Basic.ArrowRight,
+                imageVector = MiuixIcons.Contacts,
                 contentDescription = null,
-                modifier = Modifier.size(width = 10.dp, height = 16.dp),
+                modifier = Modifier.size(22.dp),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+            )
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = "开发者头像",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }

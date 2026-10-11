@@ -21,6 +21,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -31,6 +35,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.textureBlur
+import top.yukonga.miuix.kmp.squircle.absoluteSquircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -209,10 +214,21 @@ internal fun PredictiveNavLayer(
     backgroundState: PredictiveNavLayerState? = null,
     content: @Composable () -> Unit,
 ) {
+    val cornerRadius = rememberScreenCornerRadius()
+    val leadingClip = rememberLeadingCornerClip(cornerRadius)
+    // 只在"正在动"的时候裁。照 Miuix `NavDisplayEffects.shouldClipCornersAt`（Leading 模式
+    // 只认 -1 < depth < 0）：停稳的栈顶就是直角，圆角是过渡期间的临时状态。
+    // 注意不能只判 backgroundDepth —— 那只跟随手刚起步的那一帧，此时 depth 还是 1，
+    // 得把 isBackActive 一起带上，否则出现"拖动开始是直角、动起来才变圆"的跳变。
+    val clipCorners = state.isBackActive || state.isCommitting || state.backgroundDepth.value < 1f
+
     AnimatedVisibility(
         visible = visible,
         modifier = modifier
             .fillMaxSize()
+            // ⚠️ clip 必须**在** predictiveNavTransform 之后：Modifier 链里先写的在外层，
+            // 先 clip 后位移的话，裁剪框留在原地，会把滑出屏幕的内容切掉；
+            // 反过来先位移再裁，圆角就长在被拖着走的那张卡片自己身上。
             .predictiveNavTransform(
                 foregroundState = state,
                 backgroundState = backgroundState,
@@ -230,7 +246,48 @@ internal fun PredictiveNavLayer(
             ) { it }
         },
     ) {
-        content()
+        // ⚠️ 裁剪挂在这层（content 侧），不能挂到上面的 modifier 上：
+        // AnimatedVisibility 的 enter / exit slide 是作用在它内部 content 上的，
+        // 挂在外层的话裁剪框钉死在屏幕位置不动，页面滑进来时圆角留在屏幕角上，
+        // 看着就像没有圆角——圆角必须长在那张正在移动的卡片自己身上。
+        // 跟手的位移（predictiveNavTransform）在外层，所以这条对两种情况都成立。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (clipCorners) leadingClip else Modifier),
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * 只裁**前缘**那一侧的两个角，照 Miuix 的 `NavCornerClipMode.Leading`。
+ *
+ * 跟手时页面是往手这边让的，真正离开屏幕边缘的只有前缘一侧；另外两个角还贴在屏上，
+ * 给它们圆角反而会露出一条缝。所以 LTR 只有左上、左下，RTL 只有右上、右下——
+ * 用的是 `absoluteSquircleClip`（物理角，不跟着布局方向翻转），边要自己按方向挑。
+ *
+ * 形状走 squircle 而不是 `RoundedCornerShape`：MIUI 的圆角是平滑连续曲线，
+ * 普通圆弧接直线的地方在中文 UI 上一眼能看出折点。
+ */
+@Composable
+private fun rememberLeadingCornerClip(radius: Dp): Modifier {
+    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    return if (isLtr) {
+        Modifier.absoluteSquircleClip(
+            topLeft = radius,
+            bottomLeft = radius,
+            topRight = 0.dp,
+            bottomRight = 0.dp,
+        )
+    } else {
+        Modifier.absoluteSquircleClip(
+            topLeft = 0.dp,
+            bottomLeft = 0.dp,
+            topRight = radius,
+            bottomRight = radius,
+        )
     }
 }
 

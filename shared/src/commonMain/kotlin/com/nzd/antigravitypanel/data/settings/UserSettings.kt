@@ -62,6 +62,17 @@ class UserSettings(
     private val _topBarAccount = MutableStateFlow(DEFAULT_TOP_BAR_ACCOUNT)
     val topBarAccount: StateFlow<Boolean> = _topBarAccount.asStateFlow()
 
+    /**
+     * 「用综合分替换经济转化」（设置 → 实验性功能）。默认**开**。
+     *
+     * 综合分把「伤害占比」和「按金币档位修正过的效率」合成一个 0~1 的数，
+     * 算法在 `domain/CompositeScore.kt`。默认开的理由是它只是**换一种读法**：
+     * 数据来源和「经济转化」完全一样（Boss 伤害 + 金币），不发请求、不改落盘，
+     * 关掉就能原样回到比值那一格。
+     */
+    private val _compositeScore = MutableStateFlow(DEFAULT_COMPOSITE_SCORE)
+    val compositeScore: StateFlow<Boolean> = _compositeScore.asStateFlow()
+
     suspend fun restore() {
         val saved = store.read(StoreKey.RETENTION_MONTHS)?.toIntOrNull()
         _retentionMonths.value = saved?.takeIf { it in OPTIONS } ?: DEFAULT_RETENTION_MONTHS
@@ -87,6 +98,8 @@ class UserSettings(
         _autoClaimXinyueGift.value = store.read(StoreKey.XINYUE_AUTO_CLAIM) != "0"
 
         _topBarAccount.value = store.read(StoreKey.TOP_BAR_ACCOUNT) != "0"
+
+        _compositeScore.value = store.read(StoreKey.COMPOSITE_SCORE) != "0"
     }
 
     suspend fun setRetentionMonths(months: Int) {
@@ -170,6 +183,16 @@ class UserSettings(
         _topBarAccount.value = enabled
     }
 
+    /**
+     * 「用综合分替换经济转化」。默认开（[DEFAULT_COMPOSITE_SCORE]）。
+     *
+     * 关掉是**纯回退**：详情页那一格回到 Boss 伤害 ÷ 金币的比值，长按也不再弹算式。
+     */
+    suspend fun setCompositeScore(enabled: Boolean) {
+        store.write(StoreKey.COMPOSITE_SCORE, if (enabled) "1" else "0")
+        _compositeScore.value = enabled
+    }
+
     companion object {
         const val DEFAULT_RETENTION_MONTHS = 6
 
@@ -213,6 +236,9 @@ class UserSettings(
 
         /** 「概览页顶栏显示账号信息」默认开，理由见 [setTopBarAccount]。 */
         const val DEFAULT_TOP_BAR_ACCOUNT = true
+
+        /** 综合分替换经济转化默认**开**，理由见 [setCompositeScore]。 */
+        const val DEFAULT_COMPOSITE_SCORE = true
 
         fun autoRefreshLabel(minutes: Int): String = when {
             minutes <= ON_OPEN -> "每次打开时刷新"

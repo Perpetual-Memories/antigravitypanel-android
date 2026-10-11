@@ -2,6 +2,7 @@ package com.nzd.antigravitypanel.data.repo
 
 import com.nzd.antigravitypanel.data.remote.dto.UserStatsDto
 import com.nzd.antigravitypanel.domain.ActivityEvent
+import com.nzd.antigravitypanel.util.serverDateKey
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -20,6 +21,15 @@ import kotlinx.serialization.json.Json
  *
  * @param cookieStatus 上次确认过的凭证状态名。存名字而不是枚举，是为了让这一层
  *   不反向依赖 `ui.overview.CookieStatus`；解析不出来就当没缓存。
+ * @param mode 上次在「总局数」那张卡上选的模式名（[OverviewMode]）。
+ *   **它是用户自己选的，不是拉回来的数据**，但只有跟着这份缓存一起落盘才能享受
+ *   那条同步路径（`store.peek`）—— 另开一个 key 就得再预热一次，
+ *   而放进 LaunchedEffect 的话第一帧已经用默认模式画完了，看着像"设置丢了"。
+ *   同理存的是名字：老版本写的缓存里没有这个字段，走默认值即可。
+ * @param mechaTodayCount 上一次数出来的「今日机甲战」局数。null = 没数过 / 那一轮没数到。
+ * @param mechaTodayDate [mechaTodayCount] 是**哪一天**数出来的（[serverDateKey] 格式）。
+ *   必须一起存：这份缓存是跨天留着的，昨天打满 20 局不代表今天打过。
+ *   跨天就当"没数过"（卡片显示 `—`），不能拿昨天的数冒充今天的进度。
  * @param savedAtSec 落盘时间戳。UI 不读它，纯粹是排查"这份缓存多老了"用。
  */
 @Serializable
@@ -28,6 +38,9 @@ data class OverviewCache(
     val stats: UserStatsDto = UserStatsDto(),
     val recent: RecentFive? = null,
     val activities: List<ActivityEvent> = emptyList(),
+    val mode: String = OverviewMode.HUNT.name,
+    val mechaTodayCount: Int? = null,
+    val mechaTodayDate: String = "",
     /**
      * 上一次取到的账号名片（头像 + 昵称 + 归属 openid）。
      *

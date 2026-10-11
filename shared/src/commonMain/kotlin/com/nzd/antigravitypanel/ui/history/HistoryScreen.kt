@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
+import com.nzd.antigravitypanel.domain.GameMode
 import com.nzd.antigravitypanel.domain.MatchTag
 import com.nzd.antigravitypanel.domain.difficultyNameOf
 import com.nzd.antigravitypanel.domain.mapNameOf
@@ -57,6 +58,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayCascadingListPopup
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 /**
  * 历史战绩。单列列表 + 触底加载更多，滚动手感照 miuix uitest 的
@@ -110,7 +112,9 @@ fun HistoryScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .overScrollVertical(),
+            .overScrollVertical()
+            // 甩到列表顶 / 底时的一记轻振动（NexioSchedule 同款）
+            .scrollEndHaptic(),
         contentPadding = PaddingValues(
             start = 12.dp,
             top = 12.dp + insets.calculateTopPadding(),
@@ -187,12 +191,19 @@ private fun MatchRow(
     onDismissMenu: () -> Unit,
 ) {
     val mode = modeOf(match.mapId)
-    val winColor = if (match.isWin && match.finished) {
-        MiuixTheme.colorScheme.primary
-    } else {
-        MiuixTheme.colorScheme.error
+    // ⚠️ 机甲战**没有胜负这回事**：官方给的是名次，打完了就是第 n 名，
+    // 照猎场那套标「失败」是错的（一局十个人，只有第一名叫赢，其余九个全挂红字）。
+    // 没打完的（中途退出）服务端 Rank 是 0，那种情况单独给一句结论。
+    val mecha = mode == GameMode.MECHA
+    val winColor = when {
+        mecha && !match.finished -> MiuixTheme.colorScheme.error
+        mecha -> MiuixTheme.colorScheme.primary
+        match.isWin && match.finished -> MiuixTheme.colorScheme.primary
+        else -> MiuixTheme.colorScheme.error
     }
     val resultText = when {
+        mecha && !match.finished -> "中途退出"
+        mecha -> match.rankValue.takeIf { it > 0 }?.let { "第${it}名" } ?: "已完成"
         !match.finished -> "未通关"
         match.isWin -> "胜利"
         else -> "失败"

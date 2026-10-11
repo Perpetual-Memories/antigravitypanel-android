@@ -36,16 +36,19 @@ import top.yukonga.miuix.kmp.utils.PressFeedbackType
 /**
  * 概览页的签到卡。点开进二级页看明细。
  *
- * 三态要说清楚，别都用一句话糊过去：
- * - [available] 为 false：还没拿到（没登录 / 还没拉到），卡片照常在，说"登录后可自动签到"
- * - 拿到了但今天没签：正常显示数字，标「未签到」
- * - 拿到了且已签：标「已签到」
+ * 三块签到并排，右侧图标是**同一个三态**（失败打叉 / 办完打勾 / 没办完打灰），
+ * 三行各判各的：
+ * - [available] 为 false：还没拿到（没登录），卡片照常在，说"登录后可自动签到"
+ * - 拿到了但今天没签 / 每日任务奖励还没领：正常显示数字，图标打灰
+ * - 拿到了且签到和奖励都办完：打勾
  */
 @Composable
 fun SignInCard(
     status: SignInStatus,
     available: Boolean,
     loading: Boolean,
+    /** 这一轮拉失败的原因。非空时第一行要打叉，不能还挂着勾。 */
+    signInError: String? = null,
     /** 游戏中心的周签到。和小程序的每日签到是两套独立的凭证与接口。 */
     qqStatus: QqWeeklySignIn,
     qqAvailable: Boolean,
@@ -62,6 +65,10 @@ fun SignInCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 和下面两行同一个三态。这里**不看 loading**：冷启动摆的是缓存里
+    // 「今天已办完」的结论，这一轮还在拉就把勾收走，等于让结论先闪没再回来。
+    val signInFailed = signInError != null
+    val signInDone = available && !signInFailed && status.allDoneToday
     SmallTitle(text = "每日签到")
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -87,22 +94,30 @@ fun SignInCard(
                     color = MiuixTheme.colorScheme.onSurface,
                 )
                 Icon(
-                    imageVector = if (available && status.signedToday) MiuixIcons.Ok else MiuixIcons.Tasks,
+                    imageVector = when {
+                        signInFailed -> MiuixIcons.Close
+                        signInDone -> MiuixIcons.Ok
+                        else -> MiuixIcons.Tasks
+                    },
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
-                    tint = if (available && status.signedToday) {
-                        signInAccentColor()
-                    } else {
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    tint = when {
+                        signInFailed -> MiuixTheme.colorScheme.error
+                        signInDone -> signInAccentColor()
+                        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                     },
                 )
             }
 
             Text(
-                text = signInSummaryText(status, available),
+                text = signInSummaryText(status, available, signInError),
                 modifier = Modifier.padding(top = 4.dp),
                 fontSize = 13.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                color = if (signInFailed) {
+                    MiuixTheme.colorScheme.error
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                },
             )
 
             // 分隔线用一块 1dp 的方块画：项目没引入 material3，
@@ -168,7 +183,10 @@ private fun QqSignInRow(
     error: String?,
 ) {
     val failed = error != null
-    val pending = loading || status.stale
+    // ⚠️ **不看 loading**：冷启动摆的是缓存里"今天这份"的结论，这一轮还在拉就把勾
+    // 收走，等于让结论先闪没再回来。判断"还没确认完"只看**有没有今天的数据**：
+    // `!available` 是压根没缓存，`status.stale` 是缓存已经跨天。
+    val pending = !available || status.stale
     val done = available && !failed && !pending && !status.canClaim
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
@@ -221,9 +239,13 @@ private fun XinyueSignInRow(
     loading: Boolean,
     error: String?,
 ) {
-    // 和 QQ 那行同一个三态：失败打叉、没确认完打灰、确认领完了打勾
+    // 和 QQ 那行同一个三态：失败打叉、没确认完打灰、确认领完了打勾。
+    // ⚠️ **不看 loading**（第一行就是这么定的）：冷启动摆的是缓存里"今天已领完"的
+    // 结论，这一轮还在拉就把勾收走，等于让结论先闪没再回来。
+    // 判断"还没确认完"靠的是 **有没有今天的数据**：`!available`（压根没缓存）
+    // 或 `status.stale`（缓存是前几天写的）。
     val failed = error != null
-    val done = available && !failed && !loading && status.hasCard &&
+    val done = available && !failed && !status.stale && status.hasCard &&
         !status.expired && !status.canClaim
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
@@ -234,7 +256,7 @@ private fun XinyueSignInRow(
                 color = MiuixTheme.colorScheme.onSurface,
             )
             Text(
-                text = xinyueSummaryText(status, available, bound),
+                text = xinyueSummaryText(status, available, bound, loading),
                 modifier = Modifier.padding(top = 2.dp),
                 fontSize = 13.sp,
                 color = if (failed) {
@@ -266,17 +288,22 @@ internal fun qqSummaryText(
     status: QqWeeklySignIn,
     available: Boolean,
     bound: Boolean,
-    /** 正在拉。拉的过程中不能说"已领取"——那是上一次的结论。 */
+    /**
+     * 正在拉。
+     *
+     * ⚠️ 它**只在还没有今天的结论时才说话**：手上已经有一份今天的缓存时，
+     * 这一轮拉没拉完不该改变显示的内容 —— 换成「正在确认…」等于让已经确认过的
+     * 结论先闪没再回来（第一行的小程序签到就是这么定的，那三行必须一致）。
+     */
     loading: Boolean = false,
     error: String? = null,
 ): String {
     if (!bound) return "需要 QQ 登录凭证"
     // 失败要说得比"没拿到"更重：进了这行说明之前是配好的，是这一轮坏了
     if (error != null) return "这一轮没拉到：${error.take(28)}"
-    if (!available) return "还没拿到，点开看看"
-    if (loading) return "正在确认今天的状态…"
+    if (!available) return if (loading) "正在确认今天的状态…" else "还没拿到，点开看看"
     // 缓存跨天了：还没拿到今天的结论，别拿旧数字冒充
-    if (status.stale) return "还没确认今天的状态"
+    if (status.stale) return if (loading) "正在确认今天的状态…" else "还没确认今天的状态"
     // 一周是 7 天：第 8 格是七天全签满之后的额外奖励，不当成一周里的第 8 天。
     val day = if (status.totalDays > 0) "本周 ${status.weekDay}/${status.totalDays}" else "第 ${status.day} 天"
     val reward = status.todayReward.takeIf { it.isNotBlank() }?.let { " · 今日 $it" } ?: ""
@@ -295,8 +322,14 @@ internal fun qqSummaryText(
  * 累计天数不在这里：二级页那张卡的四格里已经有一格是它，概览一行塞三个数字
  * 会挤得换行。
  */
-internal fun signInSummaryText(status: SignInStatus, available: Boolean): String {
+internal fun signInSummaryText(
+    status: SignInStatus,
+    available: Boolean,
+    /** 这一轮拉失败的原因。和下面两行一样：进了这行说明之前是配好的，是这一轮坏了。 */
+    error: String? = null,
+): String {
     if (!available) return "登录后可见，打开 app 时会自动帮你签到"
+    if (error != null) return "这一轮没拉到：${error.take(28)}"
     if (status.date.isBlank()) return "暂时拿不到签到状态"
     val parts = buildList {
         add("连续 ${status.continuousDays} 天")

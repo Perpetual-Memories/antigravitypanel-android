@@ -5,14 +5,19 @@ import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.remote.dto.GameDetailDto
+import com.nzd.antigravitypanel.data.remote.dto.GameRecordDto
 import com.nzd.antigravitypanel.data.remote.dto.UserStatsDto
 import com.nzd.antigravitypanel.data.remote.dto.avatarDecoded
 import com.nzd.antigravitypanel.data.remote.dto.nicknameDecoded
 import com.nzd.antigravitypanel.domain.ActivityEvent
 import com.nzd.antigravitypanel.domain.GameMode
+import com.nzd.antigravitypanel.domain.MECHA_MAP_MODE
+import com.nzd.antigravitypanel.domain.isMecha
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.domain.parseCalendar
 import com.nzd.antigravitypanel.domain.upcomingActivities
+import com.nzd.antigravitypanel.util.parseServerTime
+import com.nzd.antigravitypanel.util.startOfServerDay
 import kotlinx.serialization.Serializable
 
 /**
@@ -89,6 +94,42 @@ class OverviewRepository(
     private val api: NzApi,
     private val dao: MatchDao,
 ) {
+    /**
+     * 今日机甲战局数（`n / [MECHA_TODAY_GOAL]` 里那个 n）。
+     *
+     * ⚠️ **只有这一处会拉机甲对局**：机甲刻意不在 [com.nzd.antigravitypanel.domain.COUNTABLE_MODES]
+     * 里，本地库除了 JSON 导入之外根本没有机甲对局，只能现拉。
+     * 代价是**只在用户真的切到这个选项时才发**，平时不占配额。
+     *
+     * ⚠️ `map_mode` 只是"请服务端先滤一道"的请求参数，**不是判据**：服务端对
+     * 「机甲非对称」这个值不买账（回过来的就是猎场那一份），所以逐条判定靠
+     * [GameRecordDto.isMecha]。这个参数的存在仅仅是为了让"服务端哪天认了"时少翻几页。
+     *
+     * 翻页上限是纯兜底：正常靠"翻到昨天的记录"或"这一页不满"提前结束，
+     * 一天最多也就几十局，一页就够。
+     *
+     * @throws Throwable 没凭证 / 网络挂了往上抛，由 ViewModel 决定怎么显示
+     */
+    suspend fun loadMechaTodayCount(nowSec: Long): Int {
+        val dayStart = startOfServerDay(nowSec)
+        var total = 0
+        for (page in 1..MECHA_TODAY_MAX_PAGES) {
+            val records = api.gameList(
+                page = page,
+                limit = MECHA_TODAY_PAGE_SIZE,
+                mapMode = MECHA_MAP_MODE,
+            ).gameList
+            if (records.isEmpty()) break
+            total += countMechaTodayGames(records, nowSec)
+            // 判断"翻过今天"只看本页**最后一条**（服务端倒序，它是最老的）：
+            // 中间夹一条时间解析不出来的脏数据不该把翻页提前截断
+            val oldest = records.lastOrNull()?.dtEventTime?.let { parseServerTime(it) }
+            if (oldest != null && oldest < dayStart) break
+            if (records.size < MECHA_TODAY_PAGE_SIZE) break
+        }
+        return total
+    }
+
     suspend fun load(cookie: MiniProgramCredential, nowSec: Long): OverviewSnapshot {
         api.updateCookie(cookie)
         val stats = runCatching { api.userStats() }.getOrDefault(UserStatsDto())
@@ -222,6 +263,26 @@ class OverviewRepository(
 
     companion object {
         /**
+         * 拉「今日机甲战」时每页条数。
+         *
+         * ⚠️⚠️ **这个值必须等于服务端每页实际返回的上限，不能写"我想要多少"**
+         * （2026-10-10 抓包实测：官方小程序自己就是 `limit=10`，而请求 20 时服务端
+         * 照样只给 10 条）。翻页终止有一条是"这一页不满 = 翻到头了"，
+         * 拿一个比服务端上限大的数去比，第一页就判定成"翻到头了"——
+         * 于是统计永远停在第一页的 10 条，今天打了 25 局也只显示 10。
+         */
+        const val MECHA_TODAY_PAGE_SIZE = 10
+
+        /**
+         * 翻页上限，纯兜底防死循环；正常靠"翻到昨天的记录"提前结束。
+         *
+         * ⚠️ 给到 10 页（100 条）是因为这一页是**全部模式混在一起**倒序返回的
+         * （官方也不传 `map_mode`），今天打的其他模式越多，要翻到昨天就得翻越多的页。
+         * 一页只有 10 条，5 页不够覆盖"打满达标场次 + 若干别的模式"这种日子。
+         */
+        const val MECHA_TODAY_MAX_PAGES = 10
+
+        /**
          * 从最近的多少局里挑猎场局。取得太少（比如正好 5）时，
          * 最近五场里混了塔防局就会凑不满；取 30 局基本够用，代价只是多扫几行本地数据。
          */
@@ -337,19 +398,70 @@ fun accountProfileOf(details: List<GameDetailDto>, openid: String = ""): Account
 private fun httpsAvatar(url: String): String =
     if (url.startsWith("http://", ignoreCase = true)) "https://${url.substring(7)}" else url
 
-/** 概览页"模式切换"下拉的四个选项，与 [UserStatsDto] 的四个计数字段对应。 */
+/**
+ * 概览页「模式切换」下拉的选项。
+ *
+ * 前四个直接对应 [UserStatsDto] 的四个**累计**计数字段；
+ * [MECHA_TODAY] 是另一路：它显示的是**今日**机甲战局数 `n / [MECHA_TODAY_GOAL]`，
+ * 不是总数，所以 [UserStatsDto.countOf] 对它返回 0，数字由
+ * [OverviewRepository.loadMechaTodayCount] 单拉一次对局列表算出来。
+ */
 enum class OverviewMode(val label: String) {
     HUNT("僵尸猎场"),
     TOWER("塔防"),
     MECHA("机甲排位"),
     TIME_HUNT("时空追猎"),
+    MECHA_TODAY("今日机甲战"),
 }
+
+/**
+ * 「今日机甲战」那一格的分母（达标场次）。
+ *
+ * ⚠️ 它是**官方定的达标线**，不是我们算出来的；官方改了就跟着改这一个数，
+ * 卡片上的 `n / 20 场` 是拿它拼出来的，别在 UI 里另写一份 20。
+ * （2026-10-10 从 40 改成 20：赛季任务的实际达标线就是 20。）
+ */
+const val MECHA_TODAY_GOAL = 20
 
 fun UserStatsDto.countOf(mode: OverviewMode): Int = when (mode) {
     OverviewMode.HUNT -> huntGameCount
     OverviewMode.TOWER -> towerGameCount
     OverviewMode.MECHA -> mechaGameCount
     OverviewMode.TIME_HUNT -> timeHuntGameCount
+    // 今日机甲战不走累计口径，数字在 OverviewRepository.loadMechaTodayCount 里
+    OverviewMode.MECHA_TODAY -> 0
+}
+
+/**
+ * 从一批**按时间倒序**的对局里数出今天（北京时间 00:00 起）打了几局**机甲战**。
+ *
+ * 之所以能在中途 `break`：服务端是倒序返回的，一旦碰到一条早于今天 00:00 的，
+ * 后面只会更老，不用再看。
+ *
+ * ⚠️ 边界是**自然日**，不是首胜宝箱那套「北京时间 05:00 刷新」——
+ * 这里数的是"今天打了几局"，不是"这一天的奖励还剩几次"，游戏规则里那两个数不同源。
+ *
+ * ⚠️ **中途退出的不算**：没打完的局（`iFinTime == 0`）服务端照样会返回，
+ * 但它不是"今天打了一局"，计进去会让这个数虚高。
+ *
+ * ⚠️⚠️ **必须逐条判是不是机甲**（[GameRecordDto.isMecha]），不能信"这一页是按
+ * `map_mode=机甲非对称` 拉回来的"：实测服务端对这个 `map_mode` 不买账，
+ * 拿回来的就是猎场那一份 —— 于是早上打两局猎场，卡片上「今日机甲战」就显示 2 局。
+ * 请求带 `map_mode` 是为了尽量让服务端先滤一道，但它只是**优化**，不是判据；
+ * 真正说了算的是每条记录自己的 `iMapId`。
+ *
+ * 纯函数：它是 `n / [MECHA_TODAY_GOAL]` 里那个 n 的全部规则，必须能单测。
+ */
+fun countMechaTodayGames(records: List<GameRecordDto>, nowSec: Long): Int {
+    val dayStart = startOfServerDay(nowSec)
+    var count = 0
+    for (record in records) {
+        // 解析不出来（未完成的局可能给空串）就跳过，不能因为一条脏数据把整页算废
+        val time = parseServerTime(record.dtEventTime) ?: continue
+        if (time < dayStart) break
+        if (record.finished && record.isMecha()) count++
+    }
+    return count
 }
 
 /** 在线时长（秒）转成 `N 小时 M 分`。 */

@@ -63,14 +63,31 @@ class QqGiftViewModel(
      * 概览那块会先闪一帧"未绑定"。
      */
     cachedSeed: String? = null,
+    /**
+     * 冷启动同步读到的**凭证原文**（`StoreKey.QQ_COOKIE_RAW`）。
+     *
+     * ⚠️ 只带 [cachedSeed] 不够：绑没绑凭证是 `bound`，而它不在缓存里
+     * （缓存只存状态数字）。少了这一路，冷启动第一帧会先摆一句「需要 QQ 登录凭证」，
+     * 等 `restore()` 协程跑完才跳成真实数字 —— 明明缓存是好的，却闪一下"没绑"。
+     */
+    credentialSeed: String? = null,
 ) {
     private val repository = QqGiftRepository(api, store)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val seeded = cachedSeed?.let { QqGiftCacheCodec.decode(it) }?.toStatus()
+    private val seededBound = !credentialSeed.isNullOrBlank()
 
     private val _state = MutableStateFlow(
-        seeded?.let { QqGiftUiState(status = it, available = true) } ?: QqGiftUiState(),
+        seeded?.let {
+            QqGiftUiState(
+                status = it,
+                // 缓存摆在这里就是为了"第一帧就有结论"，bound 也必须在这一帧给出
+                bound = seededBound,
+                available = true,
+                credentialRaw = credentialSeed.orEmpty(),
+            )
+        } ?: QqGiftUiState(bound = seededBound, credentialRaw = credentialSeed.orEmpty()),
     )
     val state: StateFlow<QqGiftUiState> = _state.asStateFlow()
 

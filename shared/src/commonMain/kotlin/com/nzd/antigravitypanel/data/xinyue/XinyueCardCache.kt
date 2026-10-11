@@ -1,5 +1,7 @@
 package com.nzd.antigravitypanel.data.xinyue
 
+import com.nzd.antigravitypanel.util.currentEpochSeconds
+import com.nzd.antigravitypanel.util.serverDateKey
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -47,15 +49,23 @@ fun XinyueCardStatus.toCache(nowSec: Long): XinyueCardCache = XinyueCardCache(
     savedAtSec = nowSec,
 )
 
-/** 缓存 → 展示模型。`canClaim` 恒为 false：没有拉到新数据之前不声称"可以领"。 */
-fun XinyueCardCache.toStatus(): XinyueCardStatus = XinyueCardStatus(
-    hasCard = hasCard,
-    expired = expired,
-    canClaim = false,
-    gotNum = gotNum,
-    totalNum = totalNum,
-    roleName = roleName,
-    partitionName = partitionName,
-    endDate = endDate,
-    rewardText = rewardText,
-)
+/**
+ * 缓存 → 展示模型。`canClaim` 恒为 false：没有拉到新数据之前不声称"可以领"。
+ *
+ * @param nowSec 用来判跨天（北京时间自然日）。缓存自己带着 [XinyueCardCache.savedAtSec]，
+ *   存的那天和今天不是同一天就把 [XinyueCardStatus.stale] 置起来 ——
+ *   悦享卡是每日礼包，隔天的"已领 n/m"不能当今天的结论。
+ */
+fun XinyueCardCache.toStatus(nowSec: Long = currentEpochSeconds()): XinyueCardStatus =
+    XinyueCardStatus(
+        hasCard = hasCard,
+        expired = expired,
+        canClaim = false,
+        gotNum = gotNum,
+        totalNum = totalNum,
+        roleName = roleName,
+        partitionName = partitionName,
+        endDate = endDate,
+        rewardText = rewardText,
+        stale = savedAtSec > 0 && serverDateKey(savedAtSec) != serverDateKey(nowSec),
+    )

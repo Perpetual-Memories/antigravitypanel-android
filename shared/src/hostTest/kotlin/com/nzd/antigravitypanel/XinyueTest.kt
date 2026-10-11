@@ -18,6 +18,7 @@ import com.nzd.antigravitypanel.data.xinyue.rewardText
 import com.nzd.antigravitypanel.data.xinyue.toCache
 import com.nzd.antigravitypanel.data.xinyue.toStatus
 import com.nzd.antigravitypanel.data.xinyue.yuexiangStatus
+import com.nzd.antigravitypanel.util.parseServerTime
 import com.nzd.antigravitypanel.ui.signin.xinyueNothingText
 import com.nzd.antigravitypanel.ui.signin.xinyueSummaryText
 import kotlinx.serialization.serializer
@@ -237,7 +238,9 @@ class XinyueTest {
     fun 缓存往返一致() {
         val status = decode<XyMyCardListDto>(RESPONSE_MY_CARD_LIST).yuexiangStatus(NOW_IN_CARD)
         val json = XinyueCardCacheCodec.encode(status.toCache(NOW_IN_CARD))
-        val back = XinyueCardCacheCodec.decode(json)?.toStatus()
+        // ⚠️ 读回来必须传**同一个**时间点：默认取当前时间，而 NOW_IN_CARD 是抓包那刻，
+        // 两者跨了天的话 stale 会对不上，这条就变成在测时钟而不是在测编解码
+        val back = XinyueCardCacheCodec.decode(json)?.toStatus(NOW_IN_CARD)
         assertEquals(status.copy(canClaim = false), back)
     }
 
@@ -251,6 +254,19 @@ class XinyueTest {
     @Test
     fun 缓存坏了就当没有() {
         assertNull(XinyueCardCacheCodec.decode("{oops"))
+    }
+
+    @Test
+    fun 缓存跨天之后要标记成stale() {
+        // 悦享卡是**每日**礼包：隔天的「已领 16/30」不能当今天的结论，
+        // 否则会出现"今天还没领，卡片却说领完了"
+        val cache = XinyueCardCache(hasCard = true, gotNum = 16, totalNum = 30)
+        val yesterday = parseServerTime("2026-09-21 22:00:00")!!
+        val today = yesterday + 86_400L
+        assertTrue(cache.copy(savedAtSec = yesterday).toStatus(today).stale)
+        assertFalse(cache.copy(savedAtSec = today).toStatus(today).stale)
+        // 没时间戳的缓存不算 stale：宁可显示旧数字，也别凭空说"还没确认"
+        assertFalse(cache.toStatus(today).stale)
     }
 
     // ---------------- 文案 ----------------
@@ -270,6 +286,25 @@ class XinyueTest {
         // 领完不再挂状态词：那件事概览卡右侧的勾已经说了，同一行说两遍纯占地方。
         // 只有"还能领"才值得写出来。
         assertEquals("已领 16/30", xinyueSummaryText(done, available = true, bound = true))
+    }
+
+    @Test
+    fun 有今天的缓存时正在刷新也不说正在确认() {
+        // 冷启动摆的是缓存里"今天已领完"的结论，这一轮还在拉就把它换成「正在确认…」，
+        // 等于让结论先闪没再回来 —— 这就是"冷启动提示正在确认当前状态"那个 bug
+        val done = XinyueCardStatus(hasCard = true, gotNum = 16, totalNum = 30)
+        assertEquals("已领 16/30", xinyueSummaryText(done, available = true, bound = true, loading = true))
+    }
+
+    @Test
+    fun 没有今天的结论时才说正在确认() {
+        val empty = XinyueCardStatus()
+        val stale = XinyueCardStatus(hasCard = true, gotNum = 16, totalNum = 30, stale = true)
+        assertTrue(xinyueSummaryText(empty, available = false, bound = true, loading = true).contains("正在确认"))
+        assertTrue(xinyueSummaryText(stale, available = true, bound = true, loading = true).contains("正在确认"))
+        // 没在拉的时候不说"正在确认"：那是两回事，别把"没拿到"说成"正在拿"
+        assertEquals("还没拿到，点开看看", xinyueSummaryText(empty, available = false, bound = true))
+        assertEquals("还没确认今天的状态", xinyueSummaryText(stale, available = true, bound = true))
     }
 
     @Test

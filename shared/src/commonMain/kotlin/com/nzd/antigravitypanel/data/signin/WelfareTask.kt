@@ -4,13 +4,19 @@ import com.nzd.antigravitypanel.data.remote.dto.ScoreRedeemListDto
 import com.nzd.antigravitypanel.data.remote.dto.TaskLabelDto
 import com.nzd.antigravitypanel.data.remote.dto.TaskRewardDto
 import com.nzd.antigravitypanel.data.remote.dto.WelfareTaskDto
+import kotlinx.serialization.Serializable
 
 /**
  * 任务中心里一个任务的展示态。UI 只读这个，不直接碰 DTO。
  *
  * 抽出来是为了让"DTO → 屏幕上那句话"能脱离网络单测：`period` 取错一支就会把
  * 「订阅小程序」这种一次性任务也自动领掉，从 UI 上完全看不出是这一层的问题。
+ *
+ * 可序列化是要跟着 [com.nzd.antigravitypanel.data.signin.SignInCache] 落盘：
+ * 「每日完成1局」今天领没领得能撑到下一次冷启动，不然首页那张卡每次开 app
+ * 都要先空一段才打勾。
  */
+@Serializable
 data class WelfareTaskState(
     val taskId: Int = 0,
     /** 领取接口要的是 `groupID + taskID`，两个都得留着。 */

@@ -3,10 +3,13 @@ package com.nzd.antigravitypanel
 import com.nzd.antigravitypanel.data.remote.dto.UserStatsDto
 import com.nzd.antigravitypanel.data.repo.OverviewCache
 import com.nzd.antigravitypanel.data.repo.OverviewCacheCodec
+import com.nzd.antigravitypanel.data.repo.OverviewMode
 import com.nzd.antigravitypanel.data.repo.RecentFive
 import com.nzd.antigravitypanel.domain.ActivityEvent
 import com.nzd.antigravitypanel.ui.overview.CookieStatus
 import com.nzd.antigravitypanel.ui.overview.restoreOverviewFromCache
+import com.nzd.antigravitypanel.util.parseServerTime
+import com.nzd.antigravitypanel.util.serverDateKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -118,6 +121,83 @@ class OverviewCacheTest {
         // 时间轴也放进断言里：endSec 是相对"现在"判断的，写个 1.7e9 会把两条都滤掉
         val restored = restoreOverviewFromCache(OverviewCacheCodec.encode(cache), 5000L)
         assertEquals(listOf("还在跑"), restored?.activities?.map { it.title })
+    }
+
+    @Test
+    fun `上次选的模式跟着缓存一起回来`() {
+        // 那张卡显示哪个口径是用户自己选的，不该每次开 app 都退回「僵尸猎场」。
+        // 它必须走缓存这一路（同步 peek），放进 LaunchedEffect 就晚一帧了。
+        val raw = OverviewCacheCodec.encode(sample().copy(mode = OverviewMode.MECHA_TODAY.name))
+        assertEquals(OverviewMode.MECHA_TODAY, restoreOverviewFromCache(raw, 1_700_000_100)?.mode)
+    }
+
+    @Test
+    fun `老版本写的缓存没有模式字段时退回默认那个`() {
+        // 模式只是个显示口径，认不出来就退回默认，不该连累整份缓存作废
+        val raw = """{"cookieStatus":"OK","stats":{"playtime":60}}"""
+        assertEquals(OverviewMode.HUNT, restoreOverviewFromCache(raw, 1_700_000_100)?.mode)
+    }
+
+    @Test
+    fun `模式名认不出来也退回默认那个`() {
+        val raw = OverviewCacheCodec.encode(sample().copy(mode = "不存在的模式"))
+        assertEquals(OverviewMode.HUNT, restoreOverviewFromCache(raw, 1_700_000_100)?.mode)
+    }
+
+    /**
+     * 「今日机甲战」的局数跟着缓存回来 —— 冷启动先摆上一局数，再去刷新。
+     *
+     * 这个数是翻好几页对局列表数出来的，冷启动现数的话卡片得先空一两秒。
+     * ⚠️ 日期必须一起存一起比：缓存是跨天留着的。
+     */
+    @Test
+    fun `同一天数的机甲局数冷启动直接摆出来`() {
+        val savedAt = parseServerTime("2026-10-10 22:00:00")!!
+        val cache = sample().copy(
+            mode = OverviewMode.MECHA_TODAY.name,
+            mechaTodayCount = 13,
+            mechaTodayDate = serverDateKey(savedAt),
+        )
+        // 还在同一天（过了 05:00 也还是同一天，这个口径按自然日切）
+        val restored = restoreOverviewFromCache(
+            OverviewCacheCodec.encode(cache),
+            parseServerTime("2026-10-10 23:50:00")!!,
+        )
+        assertEquals(OverviewMode.MECHA_TODAY, restored?.mode)
+        assertEquals(13, restored?.mechaTodayCount)
+    }
+
+    /**
+     * 跨天的那份不算数。
+     *
+     * 昨天打满 20 局不等于今天打过：摆上去会让人以为今天的进度已经够了。
+     * ⟹ 缓存过期后显示 `—`（null），**不是 0** —— 0 是"今天一局没打"，那是另一件事。
+     */
+    @Test
+    fun `跨天的机甲局数不再摆出来`() {
+        val yesterday = parseServerTime("2026-10-09 22:00:00")!!
+        val cache = sample().copy(
+            mode = OverviewMode.MECHA_TODAY.name,
+            mechaTodayCount = 20,
+            mechaTodayDate = serverDateKey(yesterday),
+        )
+        val restored = restoreOverviewFromCache(
+            OverviewCacheCodec.encode(cache),
+            parseServerTime("2026-10-10 09:00:00")!!,
+        )
+        assertEquals(OverviewMode.MECHA_TODAY, restored?.mode)
+        assertEquals(null, restored?.mechaTodayCount)
+    }
+
+    /** 老版本写的缓存没有这两个字段：null 就是"没数过"，不该因为它连累整份缓存。 */
+    @Test
+    fun `老版本写的缓存没有机甲局数字段`() {
+        val raw = """{"cookieStatus":"OK","stats":{"playtime":60}}"""
+        val restored = restoreOverviewFromCache(raw, 1_700_000_100)
+        // ⚠️ 这里比的是枚举不是字符串：OverviewUiState.cookieStatus 是 CookieStatus，
+        // 写 "OK" 会让 assertEquals 的两个 T 推导不出公共类型
+        assertEquals(CookieStatus.OK, restored?.cookieStatus)
+        assertEquals(null, restored?.mechaTodayCount)
     }
 
     @Test

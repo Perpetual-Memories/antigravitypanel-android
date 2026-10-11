@@ -16,6 +16,7 @@ import com.nzd.antigravitypanel.data.qq.toCache
 import com.nzd.antigravitypanel.data.qq.toStatus
 import com.nzd.antigravitypanel.data.qq.weeklySignIn
 import com.nzd.antigravitypanel.data.remote.IdeJson
+import com.nzd.antigravitypanel.ui.signin.qqSummaryText
 import kotlinx.serialization.serializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -266,6 +267,28 @@ class QqGiftTest {
     @Test
     fun 坏掉的缓存返回null而不是抛异常() {
         assertNull(QqGiftCacheCodec.decode("这不是 JSON"))
+    }
+
+    @Test
+    fun 有今天的缓存时正在刷新也不说正在确认() {
+        // 冷启动摆的是缓存里"今天这份"的结论，这一轮还在拉就把它换成「正在确认…」，
+        // 等于让结论先闪没再回来 —— 这就是"冷启动提示正在确认当前状态"那个 bug
+        val status = QqWeeklySignIn(day = 3, totalDays = 7, todayReward = "GP点*500")
+        assertEquals(
+            "本周 3/7 · 今日 GP点*500",
+            qqSummaryText(status, available = true, bound = true, loading = true),
+        )
+    }
+
+    @Test
+    fun 只有没有今天的结论时才说正在确认() {
+        val empty = QqWeeklySignIn()
+        val stale = QqWeeklySignIn(day = 3, totalDays = 7, stale = true)
+        assertTrue(qqSummaryText(empty, available = false, bound = true, loading = true).contains("正在确认"))
+        assertTrue(qqSummaryText(stale, available = true, bound = true, loading = true).contains("正在确认"))
+        // 没在拉的时候不说"正在确认"：那是两回事，别把"没拿到"说成"正在拿"
+        assertEquals("还没拿到，点开看看", qqSummaryText(empty, available = false, bound = true))
+        assertEquals("还没确认今天的状态", qqSummaryText(stale, available = true, bound = true))
     }
 
     private inline fun <reified T> decode(body: String): T =

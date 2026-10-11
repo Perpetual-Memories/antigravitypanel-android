@@ -1,6 +1,7 @@
 package com.nzd.antigravitypanel.domain
 
 import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
+import com.nzd.antigravitypanel.data.remote.dto.GameRecordDto
 
 /**
  * 模式归属：只认 mapId。
@@ -22,7 +23,7 @@ enum class GameMode(val label: String, val countable: Boolean) {
     HUNT("僵尸猎场", true),
     TOWER("塔防", true),
     TIME_HUNT("时空追猎", true),
-    MECHA("机甲非对称", false),
+    MECHA("机甲战", false),
     UNKNOWN("其他", false),
 }
 
@@ -86,6 +87,18 @@ val GameMode.serverMode: String
 /** 参与同步 / 统计的三个模式及其服务端名。 */
 val COUNTABLE_MODES: List<GameMode> = listOf(GameMode.HUNT, GameMode.TOWER, GameMode.TIME_HUNT)
 
+/**
+ * `center.user.game.list` 拉**机甲**对局时要给 `map_mode` 传的值。
+ *
+ * 取自服务端 `config.mapInfo[1000].mode` —— 官方下发的是「机甲非对称」。
+ * ⚠️ 它和 UI 上的显示名是两回事：显示名按需求改成了「机甲战」（[GameMode.MECHA]），
+ * **这个值不能跟着改**，跟着改服务端就不认，一局都拉不回来。
+ *
+ * ⚠️ 它**不在** [SYNC_MAP_MODES] 里：机甲刻意不进统计口径（见 [GameMode.MECHA]），
+ * 只有「今日机甲战局数」那一处为它单拉一次列表。
+ */
+const val MECHA_MAP_MODE = "机甲非对称"
+
 fun modeOf(mapId: Int): GameMode = when {
     mapId in HUNT_MAP_IDS -> GameMode.HUNT
     mapId in TOWER_MAP_IDS -> GameMode.TOWER
@@ -94,6 +107,22 @@ fun modeOf(mapId: Int): GameMode = when {
     mapId >= 1000 -> GameMode.MECHA
     else -> GameMode.UNKNOWN
 }
+
+/**
+ * 一条对局记录是不是机甲战。判据只有 [modeOf]（机甲图的 `iMapId` 在 1000 段以上），
+ * 和历史页 / 详情页同一个口径。
+ *
+ * ⚠️ **不能靠"这一批是按 `map_mode=机甲非对称` 拉回来的"来判断**：2026-10-10 抓包
+ * 实测，官方小程序自己拉 `center.user.game.list` 时压根不传 `map_mode`，
+ * 而服务端对我们传的那个值也不买账 —— 回过来的是**全部模式混在一起**的倒序列表
+ * （同一天里机甲局夹着猎场局）。早上打两局猎场，卡片上「今日机甲战」就显示 2。
+ *
+ * ⚠️⚠️ **不要拿 `iGameMode` 当判据**。同一份抓包里机甲局是 `iGameMode=2` /
+ * `iModeType=65`，猎场局是 `iGameMode=3` / `iModeType=134` —— 这些编号和直觉相反，
+ * 而且不同模式之间并不唯一（曾经按"机甲 = 6"写过一次，那是错的，会把别的模式算进来）。
+ * 地图 id 才是稳定的那个。
+ */
+fun GameRecordDto.isMecha(): Boolean = modeOf(iMapId) == GameMode.MECHA
 
 /**
  * 地图名。配置里有就用配置；没有就用官方表；两者都没有才退回 `未知(id)`。

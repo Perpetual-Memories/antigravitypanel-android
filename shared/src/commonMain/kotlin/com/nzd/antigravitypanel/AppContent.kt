@@ -56,6 +56,8 @@ import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.credential.partitionLabelOf
 import com.nzd.antigravitypanel.data.db.DatabaseProvider
 import com.nzd.antigravitypanel.data.imports.JsonImportState
+import com.nzd.antigravitypanel.data.export.MatchExportFormat
+import com.nzd.antigravitypanel.data.export.MatchExporter
 import com.nzd.antigravitypanel.data.imports.JsonMatchImporter
 import com.nzd.antigravitypanel.data.qrlogin.QrLoginPayload
 import com.nzd.antigravitypanel.data.qrlogin.parseQrLoginPayload
@@ -78,6 +80,7 @@ import com.nzd.antigravitypanel.ui.component.LAYER_EXIT_DURATION
 import com.nzd.antigravitypanel.ui.component.LocalBarBlurBackdrop
 import com.nzd.antigravitypanel.ui.component.LocalBarBlurEnabled
 import com.nzd.antigravitypanel.ui.component.LocalRootBottomBarPadding
+import com.nzd.antigravitypanel.ui.component.LocalTopBarGlassProgress
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackHandler
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackdrop
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayer
@@ -85,9 +88,15 @@ import com.nzd.antigravitypanel.ui.component.BackHandlerCompat
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayerState
 import com.nzd.antigravitypanel.ui.component.rememberPredictiveNavLayerState
 import com.nzd.antigravitypanel.ui.component.requiresBackdropCapture
+import com.nzd.antigravitypanel.ui.component.TOP_BAR_GLASS_GAP
+import com.nzd.antigravitypanel.ui.component.TopBarGlassAnchor
+import com.nzd.antigravitypanel.ui.component.TopBarGlassChip
+import com.nzd.antigravitypanel.ui.component.TopBarGlassPlaceholder
 import com.nzd.antigravitypanel.ui.component.firstWinChestPainter
 import com.nzd.antigravitypanel.ui.component.liquid.IosLiquidGlassNavigationBar
 import com.nzd.antigravitypanel.ui.component.rememberTextFilePicker
+import com.nzd.antigravitypanel.ui.component.rememberTextFileSaver
+import com.nzd.antigravitypanel.ui.component.rememberTopBarGlassProgress
 import com.nzd.antigravitypanel.ui.detail.MatchDetailScreen
 import com.nzd.antigravitypanel.ui.detail.MatchDetailViewModel
 import com.nzd.antigravitypanel.ui.history.HistoryScreen
@@ -163,6 +172,19 @@ private object Tabs {
 }
 
 /**
+ * 给液态底栏**外投影**在上方留出的空间。
+ *
+ * 底栏那道 `dropShadow` 是画在胶囊边界之外的，而承载它的 Box 一旦因为 alpha < 1
+ * （进出二级页的隐藏动画）启用离屏层，超出层边界的部分会被裁掉——
+ * 顶部没有留白，就成了唯一被裁的一道，表现为"进入时先消失、返回时到位了才出现"。
+ * 底部那道没事，是因为底栏下方本来就有 36+12dp 的 padding。
+ *
+ * 投影半径 10dp，留 16dp 足够容纳扩散。加了它 Box 会变高，
+ * 所以 [LocalRootBottomBarPadding] 要把这部分减回去（见下方 Scaffold）。
+ */
+private val BottomBarShadowSpace = 16.dp
+
+/**
  * 二级详情页。照 HyperIsland 的 `SettingsDetail`。
  *
  * 这里**不是**导航路由：二级页不进 NavDisplay 的 backStack，而是由
@@ -186,6 +208,16 @@ private enum class AppDetail {
 
     /** Build 计划：新赛季开始后统计"我要给哪把枪刷哪四个插件"。 */
     BUILD_PLAN,
+}
+
+/**
+ * 导出摘要的一句话。
+ *
+ * 用可变盒子而不是 `mutableStateOf`：SAF 的回调是在发起导出之后的某个时间点触发的，
+ * 那次回调读到的是**注册时**那一帧的值，用 State 接有概率拿到空串。
+ */
+private class ExportSummary {
+    var text: String = ""
 }
 
 @Composable
@@ -222,12 +254,20 @@ fun AppContent(
     val historyViewModel = remember {
         HistoryViewModel(database.matchDao(), marks, configRepository.config, bossStats)
     }
+    // 地图分布的官方统计 / 掉落物同样走"合成阶段同步 peek"：
+    // 冷启动那一两秒里这一页要先摆上一次确认过的数字，
+    // 否则会先摆一份本地场次（和小程序对不上的那个数）再跳回来
+    val mapStatsSeed = remember { runCatching { store.peek(StoreKey.MAP_STATS_CACHE) }.getOrNull() }
+    val mapDropsSeed = remember { runCatching { store.peek(StoreKey.MAP_DROPS_CACHE) }.getOrNull() }
     val mapViewModel = remember {
         MapDistributionViewModel(
             api,
             database.matchDao(),
             configRepository.config,
             MapSeasonFilter(store),
+            store,
+            mapStatsSeed,
+            mapDropsSeed,
         )
     }
     // 签到的冷启动缓存走和概览同一条路：宿主预热存储后同步 peek，
@@ -238,12 +278,24 @@ fun AppContent(
     // 放进 LaunchedEffect 的话它会先空一拍，看着像计划丢了
     val buildSeed = remember { runCatching { store.peek(StoreKey.BUILD_PLAN) }.getOrNull() }
     val buildPlanStore = remember { BuildPlanStore(store, buildSeed) }
-    // 游戏中心周签到：另一套凭证（QQ 登录 cookie），和小程序的签到互不相干
+    // 游戏中心周签到：另一套凭证（QQ 登录 cookie），和小程序的签到互不相干。
+    // ⚠️ 凭证原文也要同步 peek 一份：缓存里只有状态数字、没有"绑没绑凭证"，
+    // 少了它冷启动第一帧会先摆「需要 QQ 登录凭证」，等协程读完才跳成缓存里的数字。
     val qqSeed = remember { runCatching { store.peek(QqGiftViewModel.CACHE_KEY) }.getOrNull() }
-    val qqGiftViewModel = remember { QqGiftViewModel(store, cachedSeed = qqSeed) }
+    val qqCredentialSeed = remember {
+        runCatching { store.peek(StoreKey.QQ_COOKIE_RAW) }.getOrNull()
+    }
+    val qqGiftViewModel = remember {
+        QqGiftViewModel(store, cachedSeed = qqSeed, credentialSeed = qqCredentialSeed)
+    }
     // 心悦悦享卡：第三套凭证（两个 T-* 请求头），和上面两块都不通用
     val xinyueSeed = remember { runCatching { store.peek(XinyueViewModel.CACHE_KEY) }.getOrNull() }
-    val xinyueViewModel = remember { XinyueViewModel(store, cachedSeed = xinyueSeed) }
+    val xinyueCredentialSeed = remember {
+        runCatching { store.peek(StoreKey.XINYUE_CREDENTIAL_RAW) }.getOrNull()
+    }
+    val xinyueViewModel = remember {
+        XinyueViewModel(store, cachedSeed = xinyueSeed, credentialSeed = xinyueCredentialSeed)
+    }
     DisposableEffect(Unit) {
         onDispose {
             homeViewModel.close()
@@ -267,6 +319,7 @@ fun AppContent(
         // 那一刻下面那个观察 (restored, ready, cookie) 的 LaunchedEffect 才会启动首刷。
         overviewViewModel.restoreCached()
         signInViewModel.restoreCached()
+        mapViewModel.restoreCached()
         qqGiftViewModel.restore()
         xinyueViewModel.restore()
         restored = true
@@ -287,6 +340,7 @@ fun AppContent(
     val autoClaimQqGift by settings.autoClaimQqGift.collectAsState()
     val autoClaimXinyueGift by settings.autoClaimXinyueGift.collectAsState()
     val topBarAccountEnabled by settings.topBarAccount.collectAsState()
+    val compositeScoreEnabled by settings.compositeScore.collectAsState()
     val gameConfig by configRepository.config.collectAsState()
     val pinned by marks.pinned.collectAsState()
     val favorite by marks.favorite.collectAsState()
@@ -311,6 +365,13 @@ fun AppContent(
     /** 没有凭证时点状态卡先弹的"怎么拿 Cookie"对话框。 */
     var cookieGuide by remember { mutableStateOf(false) }
     var importMessage by remember { mutableStateOf<String?>(null) }
+    /** 导出结果。写文件的活在系统对话框里，所以只有等它回来才知道成功没有。 */
+    var exportMessage by remember { mutableStateOf<String?>(null) }
+    /**
+     * 导出摘要：SAF 回调是在另一个时间点触发的，用可变盒子把这句话递过去，
+     * 不然后回调里读 State 有可能拿到发起导出前那一帧的旧值。
+     */
+    val exportSummary = remember { ExportSummary() }
     val scope = rememberCoroutineScope()
 
     // ---- 二级详情页（HyperIsland 式图层）----
@@ -345,18 +406,16 @@ fun AppContent(
      * 之前两边各写一份，手动刷新那份少了 `updateCookie` 和游戏配置表，
      * 于是"点了刷新看着转了圈，地图分布还是旧的、凭证还是上一次的结论"。
      *
-     * @param autoSign true = 冷启动 / 刚登录，false = 手动刷新。
-     *   **签到与领任务奖励不在这里**——它们归下面那个专门的 effect，因为要不要做
-     *   取决于两个开关，而开关一变就得立刻试一次，不是"等下次冷启动"。
-     *   这里只在手动刷新时顺手把看板数字更新掉（顶栏那个刷新按钮是"整页重拉"，
-     *   只重刷概览却让签到卡继续显示旧数字，看着像刷新没生效）。
+     * **签到与领任务奖励不在这里**——它们归下面那个专门的 effect，因为要不要做
+     * 取决于两个开关，而开关一变就得立刻试一次，也不是"等下次冷启动"。
+     * 手动刷新由 [signInAttempt] 把那个 effect 重新触发一遍（见它的注释）。
      */
-    fun refreshAll(active: MiniProgramCredential?, autoSign: Boolean = false) {
+    fun refreshAll(active: MiniProgramCredential?) {
         if (active == null) {
             // 没凭证时也要刷一次概览：导入过 JSON 的话，状态卡要显示「已导入json」
             overviewViewModel.refresh(null)
-            // 顺带把签到卡收起来，别留着上一个号的签到状态
-            signInViewModel.refresh(null)
+            // 地图分布的官方口径同样用不了，别留着上一个号的统计
+            mapViewModel.refresh(null)
             return
         }
         // 先把凭证挂到 api 上。地图分布页的官方统计（`center.user.map.stats`）
@@ -369,24 +428,36 @@ fun AppContent(
         }
         homeViewModel.refresh(active)
         overviewViewModel.refresh(active)
-        // 冷启动 / 刚登录那条路由下面那个 effect 接走（它带两个开关），
-        // 这里只在手动刷新时补一次看板，别把看板拉两遍
-        if (!autoSign) signInViewModel.refreshBoardOnly(active)
+        // 地图分布的两个请求（官方统计 / 掉落物）**只有这里发起**：
+        // 它们都要凭证，而凭证是上面那行 `api.updateCookie` 才挂上的。
+        // 放在这一页自己构造时抢跑，那一发必然是「还没有设置 cookie」，
+        // 冷启动就会先摆一份本地场次（和小程序对不上）再跳回来。
+        mapViewModel.refresh(active)
     }
 
     LaunchedEffect(colorModeSetting) {
         if (colorModeSetting != colorMode) onColorModeChange(colorModeSetting)
     }
 
+    /**
+     * 手动刷新（顶栏那个按钮）的次数。
+     *
+     * 它进下面那个 effect 的 key，是因为**cookie 没变时那个 effect 不会重跑**，
+     * 而"点了刷新"正是要它再跑一遍：任务中心「每日完成1局」的奖励以前只在冷启动
+     * 试过一次，白天打完那一局再点刷新也不会去领，非得杀掉 app 重开才行。
+     */
+    var signInAttempt by remember { mutableStateOf(0) }
+
     // 小程序活动中心的签到 + 任务中心自动领取。
     //
     // 独立于 cookie 那个 effect 的理由和下面两块一样：**两个开关要进 key**——
     // 用户刚把开关打开时应该立刻试一次，不用等下次冷启动。
     // 同一天重复跑不会有副作用：签到按「日期|openid」去重，任务按同一段前缀下的
-    // taskId 集合去重（每日和每周不是同时达成的，所以必须记到任务粒度）。
+    // taskId 集合去重（每日和每周不是同时达成的，所以必须记到任务粒度）；
+    // 已经领过的任务服务端那边 `isawarded` 已经是 true，压根不会进领取请求。
     //
-    // 冷启动和新登录也都从这里走一遍，所以 refreshAll 里不再碰签到。
-    LaunchedEffect(restored, ready, cookie, autoSignIn, autoClaimWelfareTask) {
+    // 冷启动 / 新登录 / 点刷新，三种时机都走这里，所以 refreshAll 里不再碰签到。
+    LaunchedEffect(restored, ready, cookie, autoSignIn, autoClaimWelfareTask, signInAttempt) {
         if (!restored) return@LaunchedEffect
         signInViewModel.refresh(
             cookie = cookie,
@@ -417,7 +488,7 @@ fun AppContent(
         // 接一个局部变量：cookie 是委托属性，编译器不做智能转换
         val active = cookie
         if (active != null) {
-            refreshAll(active, autoSign = true)
+            refreshAll(active)
         } else {
             refreshAll(null)
             // 游戏中心那块和小程序的凭证无关，它只看自己有没有存过 QQ cookie。
@@ -442,6 +513,13 @@ fun AppContent(
                 },
             )
         }
+    }
+
+    // 实验性功能：把本机对局导出成 CSV / JSON。
+    // 全部读本地库，不发请求 —— 详情接口一次只查一局，为了导出几千行去逐局现拉不现实。
+    val exporter = remember { MatchExporter(database.matchDao(), bossStats) }
+    val saveMatchFile = rememberTextFileSaver { saved ->
+        exportMessage = if (saved) exportSummary.text else null
     }
 
     val serializersModule = remember {
@@ -502,15 +580,23 @@ fun AppContent(
                     // 之前这里只刷了三个 ViewModel，少了 updateCookie、配置表和 qq/心悦那两块，
                     // 结果就是"点了刷新但地图分布还是旧名 / 凭证还是上一次的结论"。
                     // 抽成 [refreshAll] 是为了两处不可能再分叉——各写一份迟早会漏一项。
-                    onRefresh = { refreshAll(cookie) },
+                    // ⚠️ 签到那一路不在这里：它认 [signInAttempt] 那个 key，
+                    // 光调 refreshAll 的话 cookie 没变、effect 不会重跑，
+                    // 「每日完成1局」的奖励就只在冷启动领过一次。
+                    onRefresh = {
+                        signInAttempt++
+                        refreshAll(cookie)
+                    },
                     settings = SettingsUiState(
                         retentionMonths = retentionMonths,
                         autoRefreshMinutes = autoRefreshMinutes,
                         topBarAccountEnabled = topBarAccountEnabled,
+                        compositeScoreEnabled = compositeScoreEnabled,
                     ),
                     onAutoRefreshChange = { scope.launch { settings.setAutoRefreshMinutes(it) } },
                     onRetentionMonthsChange = { scope.launch { settings.setRetentionMonths(it) } },
                     onTopBarAccountChange = { scope.launch { settings.setTopBarAccount(it) } },
+                    onCompositeScoreChange = { scope.launch { settings.setCompositeScore(it) } },
                     onClearLocalData = {
                         scope.launch {
                             repository.clearLocal()
@@ -523,6 +609,18 @@ fun AppContent(
                         }
                     },
                     onImportJson = { pickJsonFile() },
+                    onExportMatches = { format ->
+                        scope.launch {
+                            val file = exporter.build(format, currentEpochSeconds())
+                            if (file.matchCount == 0) {
+                                exportMessage = "本机还没有对局记录，先同步一次再导出"
+                                return@launch
+                            }
+                            exportSummary.text = "已导出 ${file.matchCount} 场" +
+                                "（其中 ${file.detailCount} 场带单局详情）"
+                            saveMatchFile(file.fileName, file.mimeType, file.content)
+                        }
+                    },
                     // ---- 二级详情页：图层内容 ----
                     // 挂在 MainScreen 内部（BarBlurHost 里）而不是这里，
                     // 因为预测性返回的虚化层要读同一个 backdrop。
@@ -539,6 +637,9 @@ fun AppContent(
                                 viewModel = detailViewModel,
                                 roomId = roomId,
                                 config = gameConfig,
+                                // 传对象而不是传读好的 Boolean：二级页图层里的 lambda
+                                // 拿到的是快照的话，开关在别处改了这里不会跟着变
+                                userSettings = settings,
                                 onBack = ::closeDetail,
                             )
                         } else {
@@ -671,7 +772,7 @@ fun AppContent(
                     // 三个 ViewModel，漏了 api.updateCookie() 和游戏配置表 —— 前者是
                     // 「凭证靠时序副作用写进单例」那个坑，地图分布页会拿着上一个账号的凭证请求。
                     // 刚填的凭证要立刻走一次自动签到，不用等下次冷启动
-                    refreshAll(saved, autoSign = true)
+                    refreshAll(saved)
                 }.onFailure { e ->
                     guideError = e.message ?: "保存失败"
                 }
@@ -767,7 +868,7 @@ fun AppContent(
                                         // 走 refreshAll 而不是挨个刷三个 ViewModel：
                                         // 它里面还有 api.updateCookie 和游戏配置表，
                                         // 少了前者，地图分布页会拿着上一个号的凭证去请求
-                                        refreshAll(saved, autoSign = true)
+                                        refreshAll(saved)
                                     }
                                     .onFailure { e ->
                                         scanMessage =
@@ -831,6 +932,30 @@ fun AppContent(
         }
     }
 
+    exportMessage?.let { message ->
+        WindowDialog(
+            show = true,
+            title = "导出结果",
+            onDismissRequest = { exportMessage = null },
+        ) {
+            Column {
+                Text(
+                    text = message,
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Button(
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .fillMaxWidth(),
+                    onClick = { exportMessage = null },
+                ) {
+                    Text("好的")
+                }
+            }
+        }
+    }
+
     // Miuix 的 dialog / bottomsheet 只是往 `LocalDialogStates` 里注册一个 state，
     // 真正画出来要靠 `MiuixPopupHost` —— 而 Scaffold 内部才会自带这个 host。
     // 上面这几个弹层都在 Scaffold **外面**（它们是 app 级的，不属于某一页），
@@ -879,8 +1004,10 @@ private fun MainScreen(
     onAutoRefreshChange: (Int) -> Unit,
     onRetentionMonthsChange: (Int) -> Unit,
     onTopBarAccountChange: (Boolean) -> Unit,
+    onCompositeScoreChange: (Boolean) -> Unit,
     onClearLocalData: () -> Unit,
     onImportJson: () -> Unit,
+    onExportMatches: (MatchExportFormat) -> Unit,
 ) {
     val pagerState = rememberPagerState(pageCount = { Tabs.COUNT })
     val coroutineScope = rememberCoroutineScope()
@@ -966,10 +1093,17 @@ private fun MainScreen(
                 // overlay）：一级页里的弹层默认注册到**根** Scaffold 的 popup host，
                 // 那层画在 bottomBar 之后，刚好压住底栏；换成 overlay 就会被底栏反过来压住。
                 Box(
-                    modifier = Modifier.graphicsLayer {
-                        translationY = size.height * bottomBarHidden
-                        alpha = 1f - bottomBarHidden
-                    },
+                    modifier = Modifier
+                        .graphicsLayer {
+                            translationY = size.height * bottomBarHidden
+                            alpha = 1f - bottomBarHidden
+                        }
+                        // 上方留出[BottomBarShadowSpace]给外投影：alpha < 1 会开离屏层，
+                        // 层外（胶囊边界之外）画的东西会被裁掉，不留白顶部那道就没了。
+                        // ⚠️ padding 必须写在 graphicsLayer **之后**（内层）：离屏层的尺寸等于
+                        // graphicsLayer 量到的 child 尺寸，写在外层的话层还是只有胶囊那么大，
+                        // 留出来的 16dp 落在层外，阴影照样被裁。
+                        .padding(top = BottomBarShadowSpace),
                 ) {
                     LiquidNavigationBar(
                         items = navigationItems,
@@ -994,7 +1128,11 @@ private fun MainScreen(
             // 顶栏的 progressiveTextureBlur 才有东西可糊。页面自己用 contentPadding 躲开顶栏。
             BarBackdropContent(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(
-                    LocalRootBottomBarPadding provides innerPadding.calculateBottomPadding(),
+                    // bottomBar 那道 16dp 只是给投影留的空，不是底栏占位，
+                    // 得减回去，否则每个一级页底部都会凭空多出一截。
+                    LocalRootBottomBarPadding provides (
+                        innerPadding.calculateBottomPadding() - BottomBarShadowSpace
+                        ).coerceAtLeast(0.dp),
                 ) {
                     HorizontalPager(
                         state = pagerState,
@@ -1035,17 +1173,25 @@ private fun MainScreen(
                                 when (page) {
                                     Tabs.OVERVIEW -> {
                                         // 首胜宝箱在刷新按钮**左边**：它是"看一眼"的信息，
-                                        // 刷新是要点的操作，主操作放最右更符合右手习惯
-                                        FirstWinChestButton(
-                                            count = firstWinCount,
-                                            onClick = onOpenChestDialog,
-                                        )
-                                        IconButton(onClick = onRefresh) {
-                                            Icon(
-                                                imageVector = MiuixIcons.Refresh,
-                                                contentDescription = "刷新数据",
-                                                tint = MiuixTheme.colorScheme.onSurface,
-                                            )
+                                        // 刷新是要点的操作，主操作放最右更符合右手习惯。
+                                        // 两颗玻璃之间留 [TOP_BAR_GLASS_GAP]：贴着放时
+                                        // 两个圆相切，读起来像一颗连体按钮。
+                                        Row(horizontalArrangement = Arrangement.spacedBy(TOP_BAR_GLASS_GAP)) {
+                                            TopBarGlassChip {
+                                                FirstWinChestButton(
+                                                    count = firstWinCount,
+                                                    onClick = onOpenChestDialog,
+                                                )
+                                            }
+                                            TopBarGlassChip {
+                                                IconButton(onClick = onRefresh) {
+                                                    Icon(
+                                                        imageVector = MiuixIcons.Refresh,
+                                                        contentDescription = "刷新数据",
+                                                        tint = MiuixTheme.colorScheme.onSurface,
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
 
@@ -1053,32 +1199,36 @@ private fun MainScreen(
                                     // 时空追猎没有赛季表，seasonOptions 是空的 —— 那时整个入口不摆，
                                     // 摆一个点开什么都没有的图标比没有更让人困惑。
                                     Tabs.MAPS -> if (mapSeasonOptions.isNotEmpty()) {
-                                        MapSeasonFilterMenu(
-                                            seasons = mapSeasonOptions,
-                                            selected = mapSeasonSelected,
-                                            onToggle = mapViewModel::toggleSeason,
-                                        ) {
-                                            Icon(
-                                                imageVector = MiuixIcons.Tune,
-                                                contentDescription = "按赛季筛选",
-                                                tint = MiuixTheme.colorScheme.onSurface,
-                                            )
+                                        TopBarGlassChip {
+                                            MapSeasonFilterMenu(
+                                                seasons = mapSeasonOptions,
+                                                selected = mapSeasonSelected,
+                                                onToggle = mapViewModel::toggleSeason,
+                                            ) {
+                                                Icon(
+                                                    imageVector = MiuixIcons.Tune,
+                                                    contentDescription = "按赛季筛选",
+                                                    tint = MiuixTheme.colorScheme.onSurface,
+                                                )
+                                            }
                                         }
                                     }
 
                                     // 筛选改成级联下拉菜单，五个维度各一个子菜单。
                                     // 展开状态由组件自己管，不用再在外面存一个 "filterSheet" 布尔值。
-                                    Tabs.HISTORY -> HistoryFilterMenu(
-                                        filter = historyFilter,
-                                        allMatches = historyAllMatches,
-                                        config = gameConfig,
-                                        onFilterChange = { historyViewModel.setFilter(it) },
-                                    ) {
-                                        Icon(
-                                            imageVector = MiuixIcons.Tune,
-                                            contentDescription = "筛选",
-                                            tint = MiuixTheme.colorScheme.onSurface,
-                                        )
+                                    Tabs.HISTORY -> TopBarGlassChip {
+                                        HistoryFilterMenu(
+                                            filter = historyFilter,
+                                            allMatches = historyAllMatches,
+                                            config = gameConfig,
+                                            onFilterChange = { historyViewModel.setFilter(it) },
+                                        ) {
+                                            Icon(
+                                                imageVector = MiuixIcons.Tune,
+                                                contentDescription = "筛选",
+                                                tint = MiuixTheme.colorScheme.onSurface,
+                                            )
+                                        }
                                     }
                                 }
                             },
@@ -1122,10 +1272,12 @@ private fun MainScreen(
                                     onAutoRefreshChange = onAutoRefreshChange,
                                     onRetentionMonthsChange = onRetentionMonthsChange,
                                     onTopBarAccountChange = onTopBarAccountChange,
+                                    onCompositeScoreChange = onCompositeScoreChange,
                                     onClearLocalData = onClearLocalData,
                                     onOpenAbout = onOpenAbout,
                                     onOpenTheme = onOpenTheme,
                                     onImportJson = onImportJson,
+                                    onExportMatches = onExportMatches,
                                     insets = insets,
                                 )
                             }
@@ -1212,58 +1364,74 @@ private fun RootPage(
 ) {
     val scrollBehavior = MiuixScrollBehavior()
     val blurEnabled = LocalBarBlurEnabled.current
+    // 顶栏按钮那层玻璃跟着这份滚动行为显隐（见 ScrollDrivenGlass.kt）。
+    // 放在这里不会有性能负担：它内部是一条 snapshotFlow，只有阴影/玻璃自己在动。
+    val glassProgress = rememberTopBarGlassProgress(scrollBehavior)
+    // 顶栏那几颗玻璃画在**顶栏外面**那层不被裁的 overlay 上（Miuix 顶栏自带
+    // clipToBounds，会把溢出到 42dp 之外的阴影切成一条直边），槽位里只留一个
+    // 同尺寸的占位撑住标题，位置由它上报给锚点。
+    val endGlassAnchor = remember { TopBarGlassAnchor() }
     BarBlurHost(enabled = blurEnabled) {
-        Scaffold(
-            topBar = {
-                BlurredBar(topGradient = true) {
-                    if (largeTitle == null) {
-                        // ⚠️ 不要大标题的页面必须用 SmallTopAppBar，不能拿
-                        // TopAppBar(largeTitle = "") 顶替：大标题在 Miuix 里是
-                        // 「padding(top = CollapsedHeight) + Text」的一个 Box，
-                        // **传空串也照样量出一行的高度**（顶栏高度按它算），
-                        // 于是工具条下面白白空出一行 —— 用户看到的就是
-                        // "应用名和顶栏之间多了一块"。SmallTopAppBar 只有工具条那一条，
-                        // 顶栏高度 = 状态栏 + CollapsedHeight，正好是应用名该贴的位置。
-                        // 副作用也是想要的：它会把 scrollBehavior 钉住，顶栏不再折叠，
-                        // 那一句标题由页面自己画在列表里跟着内容滚。
-                        SmallTopAppBar(
-                            title = collapsedTitle,
-                            color = Color.Transparent,
-                            scrollBehavior = scrollBehavior,
-                            navigationIcon = navigationIcon,
-                            actions = actions,
-                        )
-                    } else {
-                        // TopAppBar（不是 SmallTopAppBar）才有大标题：页面在顶部时标题单独占一行、
-                        // 不和右侧按钮挤在一起，下滑后才收进工具条。
-                        TopAppBar(
-                            title = collapsedTitle,
-                            largeTitle = largeTitle,
-                            color = Color.Transparent,
-                            scrollBehavior = scrollBehavior,
-                            // 左侧账号胶囊（只有概览页会往这里摆东西）。它整块可点，
-                            // 点了就弹「账号详细信息」 —— 和点概览里的状态卡走同一条路
-                            navigationIcon = navigationIcon,
-                            actions = actions,
+        // 必须罩住 Scaffold：Actions 是在它的 topBar 槽位里组合的，Provide 只包到
+        // topBar 内部那一层就漏了。受影响的就是顶栏这几个按钮 ——
+        // 页面内容里的按钮各自有卡片当背景，不需要跟着滚。
+        CompositionLocalProvider(LocalTopBarGlassProgress provides glassProgress) {
+            Scaffold(
+                topBar = {
+                    BlurredBar(
+                        topGradient = true,
+                        endGlassAnchor = endGlassAnchor,
+                        endGlass = actions,
+                    ) {
+                        if (largeTitle == null) {
+                            // ⚠️ 不要大标题的页面必须用 SmallTopAppBar，不能拿
+                            // TopAppBar(largeTitle = "") 顶替：大标题在 Miuix 里是
+                            // 「padding(top = CollapsedHeight) + Text」的一个 Box，
+                            // **传空串也照样量出一行的高度**（顶栏高度按它算），
+                            // 于是工具条下面白白空出一行 —— 用户看到的就是
+                            // "应用名和顶栏之间多了一块"。SmallTopAppBar 只有工具条那一条，
+                            // 顶栏高度 = 状态栏 + CollapsedHeight，正好是应用名该贴的位置。
+                            // 副作用也是想要的：它会把 scrollBehavior 钉住，顶栏不再折叠，
+                            // 那一句标题由页面自己画在列表里跟着内容滚。
+                            SmallTopAppBar(
+                                title = collapsedTitle,
+                                color = Color.Transparent,
+                                scrollBehavior = scrollBehavior,
+                                navigationIcon = navigationIcon,
+                                actions = { TopBarGlassPlaceholder(endGlassAnchor) },
+                            )
+                        } else {
+                            // TopAppBar（不是 SmallTopAppBar）才有大标题：页面在顶部时标题单独占一行、
+                            // 不和右侧按钮挤在一起，下滑后才收进工具条。
+                            TopAppBar(
+                                title = collapsedTitle,
+                                largeTitle = largeTitle,
+                                color = Color.Transparent,
+                                scrollBehavior = scrollBehavior,
+                                // 左侧账号胶囊（只有概览页会往这里摆东西）。它整块可点，
+                                // 点了就弹「账号详细信息」 —— 和点概览里的状态卡走同一条路
+                                navigationIcon = navigationIcon,
+                                actions = { TopBarGlassPlaceholder(endGlassAnchor) },
+                            )
+                        }
+                    }
+                },
+            ) { padding ->
+                BarBackdropContent(modifier = Modifier.fillMaxSize()) {
+                    // 滚动行为挂在页面外层：LazyColumn 的滚动增量会沿嵌套滚动链冒泡到这里，
+                    // 顶栏据此决定大标题收不收、磨砂出不出。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    ) {
+                        content(
+                            PaddingValues(
+                                top = padding.calculateTopPadding(),
+                                bottom = LocalRootBottomBarPadding.current,
+                            ),
                         )
                     }
-                }
-            },
-        ) { padding ->
-            BarBackdropContent(modifier = Modifier.fillMaxSize()) {
-                // 滚动行为挂在页面外层：LazyColumn 的滚动增量会沿嵌套滚动链冒泡到这里，
-                // 顶栏据此决定大标题收不收、磨砂出不出。
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
-                ) {
-                    content(
-                        PaddingValues(
-                            top = padding.calculateTopPadding(),
-                            bottom = LocalRootBottomBarPadding.current,
-                        ),
-                    )
                 }
             }
         }

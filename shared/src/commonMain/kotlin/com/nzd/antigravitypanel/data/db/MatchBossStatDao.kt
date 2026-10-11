@@ -15,6 +15,10 @@ interface MatchBossStatDao {
     @Query("SELECT * FROM match_boss_stats")
     fun observeAll(): Flow<List<MatchBossStatEntity>>
 
+    /** 导出用：一次性把整表读出来。和 [observeAll] 同一张表，只是不订阅后续变化。 */
+    @Query("SELECT * FROM match_boss_stats")
+    suspend fun all(): List<MatchBossStatEntity>
+
     /** 已经试过的 roomId（不区分成功还是失败），补拉前先读一遍去重。 */
     @Query("SELECT roomId FROM match_boss_stats")
     suspend fun knownRoomIds(): List<String>

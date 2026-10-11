@@ -33,6 +33,15 @@ data class XinyueCardStatus(
     val endDate: String = "",
     /** 这次领到的东西，形如 `NZ点×200`。**只有领取之后才有值**。 */
     val rewardText: String = "",
+
+    /**
+     * 这份数字不是**今天**拉到的（从缓存里读出来的，且已经跨天）。
+     *
+     * 悦享卡是**每日**礼包，所以这条和 QQ 周签到那条一样要紧：缓存里那份
+     * 「已领 16/30」可能是前几天的，跨天之后再拿它当"今天的结论"，
+     * 就会出现"今天还没领，卡片却说领完了"。拉到新数据后恒为 false。
+     */
+    val stale: Boolean = false,
 ) {
     val hasData: Boolean get() = hasCard
 }

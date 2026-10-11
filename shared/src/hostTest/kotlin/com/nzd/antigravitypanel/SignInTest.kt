@@ -204,6 +204,78 @@ class SignInTest {
         assertEquals(null, SignInCacheCodec.decode("这不是 JSON"))
     }
 
+    @Test
+    fun 同一天的缓存保留每日任务已领取的结论() {
+        // 领完了再开 app，首页第一帧就该打勾，不该先空一段
+        val cache = statusOf(HarFixtures.RESPONSE_SIGNIN_LIST)
+            .copy(
+                signedToday = true,
+                dailyTask = WelfareTaskState(
+                    taskId = 65928,
+                    name = "每日完成1局",
+                    progress = 1,
+                    target = 1,
+                    finished = true,
+                    awarded = true,
+                    period = "day",
+                ),
+            )
+            .toCache(0L)
+        val restored = cache.toStatus("20260921")
+        assertEquals(true, restored.dailyTask?.awarded)
+        assertTrue(restored.allDoneToday)
+    }
+
+    @Test
+    fun 跨天后缓存里的每日任务不作数() {
+        // 它是按天重置的：昨天"奖励已领取"摆到今天就是一句假话
+        val cache = statusOf(HarFixtures.RESPONSE_SIGNIN_LIST)
+            .copy(
+                signedToday = true,
+                dailyTask = WelfareTaskState(name = "每日完成1局", finished = true, awarded = true),
+            )
+            .toCache(0L)
+        val restored = cache.toStatus("20260922")
+        assertEquals(null, restored.dailyTask)
+        assertFalse(restored.allDoneToday)
+    }
+
+    @Test
+    fun 今天签了但奖励还没领时不算办完() {
+        val cache = statusOf(HarFixtures.RESPONSE_SIGNIN_LIST)
+            .copy(
+                signedToday = true,
+                dailyTask = WelfareTaskState(name = "每日完成1局", finished = true, awarded = false),
+            )
+            .toCache(0L)
+        val restored = cache.toStatus("20260921")
+        assertTrue(restored.signedToday)
+        assertFalse(restored.allDoneToday)
+    }
+
+    @Test
+    fun 服务端没下发每日任务时不扣住勾() {
+        // dailyTask 为 null 有两种含义（没拉到 / 服务端确实没有），
+        // 两种情况都不该让"今天已签完"显示成待办
+        val cache = statusOf(HarFixtures.RESPONSE_SIGNIN_LIST)
+            .copy(signedToday = true, dailyTask = null)
+            .toCache(0L)
+        assertTrue(cache.toStatus("20260921").allDoneToday)
+    }
+
+    @Test
+    fun 每日任务跟着缓存一起编解码() {
+        val cache = statusOf(HarFixtures.RESPONSE_SIGNIN_LIST)
+            .copy(dailyTask = WelfareTaskState(taskId = 65928, name = "每日完成1局", period = "day"))
+            .toCache(0L)
+        val decoded = SignInCacheCodec.decode(SignInCacheCodec.encode(cache))
+        assertEquals(cache, decoded)
+        assertEquals(65928, decoded?.dailyTask?.taskId)
+        // 没有每日任务时写进去的是 null，读回来也得是 null 而不是一条全零的任务
+        val bare = SignInStatus(date = "2026-09-21").toCache(0L)
+        assertEquals(null, SignInCacheCodec.decode(SignInCacheCodec.encode(bare))?.dailyTask)
+    }
+
     // ---------------- 按北京时间切天 ----------------
 
     @Test

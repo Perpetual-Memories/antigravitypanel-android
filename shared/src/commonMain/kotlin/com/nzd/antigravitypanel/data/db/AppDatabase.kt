@@ -35,9 +35,22 @@ val MIGRATION_1_2: Migration = object : Migration(1, 2) {
     }
 }
 
+/**
+ * 2 -> 3：给 `match_boss_stats` 加 `payloadJson`（单局详情的其余字段，见 [CachedMatchDetail]）。
+ *
+ * 只加一列，所以是 `ALTER TABLE ADD COLUMN` 而不是重建表。可空列不需要 DEFAULT，
+ * SQLite 允许 `ADD COLUMN x TEXT` —— 老行的这一列就是 NULL，正好对上
+ * "这份详情是升级前拉到的" 这个含义。
+ */
+val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+    override fun migrate(db: SQLiteConnection) {
+        db.prepare("ALTER TABLE `match_boss_stats` ADD COLUMN `payloadJson` TEXT").use { it.step() }
+    }
+}
+
 @Database(
     entities = [MatchEntity::class, ConfigCacheEntity::class, MatchBossStatEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 @ConstructedBy(AppDatabaseConstructor::class)
