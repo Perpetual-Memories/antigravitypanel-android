@@ -13,6 +13,8 @@
 本项目与腾讯、天美工作室群**无任何隶属或合作关系**。所有数据来自官方微信小程序公开接口，
 仅供个人战绩查询与统计用途。
 
+100%纯AI制作，无人工添加。
+
 ---
 
 ## 开始用
@@ -44,11 +46,9 @@
 | [NZM](https://github.com/HaMan412/NZM) — 哈曼 @Haman412 | 一切的起点|
 | [Miuix](https://github.com/compose-miuix-ui/miuix/) — @YuKongA | UI 组件库 |
 | [HyperIsland](https://github.com/1812z/HyperIsland) — 芥子 @1812z | 参考甚至直接使用了其极为优秀的 UI 实现 |
+| [NexioSchedule](https://github.com/HaoZai000/NexioSchedule) — HaooZ | 参考并使用了其应用顶栏等设计 |
 | [lsfTB](https://github.com/lsfdc233/lsfTB) — lsfdc233 | 参考并使用了其扫码相关UI |
 | [nzm-wiki](https://github.com/lostlightll/nzm-wiki) — 幻想延續@lostlightll | 逆战:未来最好的wiki，本项目使用了其仓库的资源  |
-
-液态玻璃底栏同样来自 Miuix example，源头是 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（Apache-2.0）。
-
 ---
 
 ## License
