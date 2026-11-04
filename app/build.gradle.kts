@@ -43,8 +43,9 @@ android {
         //        24（去掉简报页刷新按钮 / 日期条加宽防省略号 / 修整页全 0：
         //            不再按 openid 筛对局 —— 凭证的 openid 与战绩的 vOpenID 不同口径）；
         //        25（时间轴连成一条线；模式分布卡加间隔点；四张卡各自可点：
-        //            场次 / 活跃时段 / 模式分布开底部弹层，游戏时长弹 Snackbar）。
-        versionCode = 25
+        //            场次 / 活跃时段 / 模式分布开底部弹层，游戏时长弹 Snackbar）；
+        //        26（时间线行距恢复到 16dp；连续同一张图只画一次缩略图）。
+        versionCode = 26
         versionName = "0.2.5"
     }
     // 发布签名：凭据放 keystore.properties（和 *.jks 一样在 .gitignore 里）。

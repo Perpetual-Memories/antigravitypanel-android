@@ -353,6 +353,10 @@ private fun TimelineCard(
                             cardColor = cardColor,
                             isFirst = index == 0,
                             isLast = index == briefing.matches.lastIndex,
+                            // 连着打同一张图时只在第一局画缩略图：图是一样的，重复十遍
+                            // 只会把"换图了"这个信息淹掉。位置照旧留着，右边的
+                            // 地图名 / 难度 / 时间不会跟着左右跳。
+                            showArt = index == 0 || briefing.matches[index - 1].mapId != match.mapId,
                             onClick = { onOpenDetail(match.roomId) },
                         )
                     }
@@ -369,6 +373,8 @@ private fun TimelineRow(
     cardColor: Color,
     isFirst: Boolean,
     isLast: Boolean,
+    /** false = 这一局的地图和上一局相同，缩略图位置留白不画图。 */
+    showArt: Boolean,
     onClick: () -> Unit,
 ) {
     val mode = modeOf(match.mapId)
@@ -395,7 +401,9 @@ private fun TimelineRow(
                 // 让时间轴那一列能撑满整行高度：圆点和连线要跨过上下两行的间距
                 .height(IntrinsicSize.Min)
                 // ⚠️ 只留横向内边距。竖向内边距如果留在这层，时间轴会被上下各切掉
-                // 8dp，两行之间就断开成一段段短竖线了 —— 竖向留白改由每个内容自己加。
+                // 8dp，两行之间就断开成一段段短竖线了 —— 竖向留白改由每个内容自己加
+                // （见下面每个子项的 bottom = 8.dp）。行高由"最高那个内容 + 8"决定，
+                // 时间轴跟着一起变长，所以行与行之间还是**一条连续的线**。
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -404,7 +412,7 @@ private fun TimelineRow(
                 modifier = Modifier
                     .width(38.dp)
                     // 和圆点对齐：8dp 行内留白 + 4dp，中心落在 18dp 左右
-                    .padding(top = 12.dp),
+                    .padding(top = 12.dp, bottom = 8.dp),
                 fontSize = 11.sp,
                 maxLines = 1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -420,26 +428,35 @@ private fun TimelineRow(
 
             Box(
                 modifier = Modifier
-                    .padding(top = 8.dp, start = 6.dp)
+                    .padding(top = 8.dp, start = 6.dp, bottom = 8.dp)
                     .size(width = 52.dp, height = 30.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(MiuixTheme.colorScheme.surfaceVariant),
+                    // 同图不画缩略图，但尺寸照留：右边文字的起始位置不能变
+                    .then(
+                        if (showArt) {
+                            Modifier.background(MiuixTheme.colorScheme.surfaceVariant)
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
-                val art = mapArtPainter(match.mapId)
-                if (art != null) {
-                    Image(
-                        painter = art,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
+                if (showArt) {
+                    val art = mapArtPainter(match.mapId)
+                    if (art != null) {
+                        Image(
+                            painter = art,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    }
                 }
             }
 
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 10.dp, top = 9.dp),
+                    .padding(start = 10.dp, top = 9.dp, bottom = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -469,7 +486,7 @@ private fun TimelineRow(
 
             Column(
                 modifier = Modifier
-                    .padding(start = 8.dp, top = 8.dp)
+                    .padding(start = 8.dp, top = 8.dp, bottom = 8.dp)
                     .widthIn(min = 56.dp),
                 horizontalAlignment = Alignment.End,
             ) {
