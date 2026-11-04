@@ -60,7 +60,7 @@ import com.nzd.antigravitypanel.domain.CompositeScoreBreakdown
 import com.nzd.antigravitypanel.domain.GameMode
 import com.nzd.antigravitypanel.domain.compositeScores
 import com.nzd.antigravitypanel.domain.CompositeScoreInput
-import com.nzd.antigravitypanel.domain.difficultyNameOf
+import com.nzd.antigravitypanel.domain.difficultyDisplayNameOf
 import com.nzd.antigravitypanel.domain.mapNameOf
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.domain.partitionNameOf
@@ -434,7 +434,7 @@ private fun MatchOverviewCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            val difficulty = difficultyNameOf(match.subModeType, config)
+            val difficulty = difficultyDisplayNameOf(match.subModeType, config)
             Text(
                 text = mapNameOf(match.mapId, config) +
                     (difficulty?.let { "-$it" } ?: ""),

@@ -49,7 +49,7 @@ import com.nzd.antigravitypanel.domain.DailyBriefing
 import com.nzd.antigravitypanel.domain.MatchTag
 import com.nzd.antigravitypanel.domain.briefingDays
 import com.nzd.antigravitypanel.domain.buildDailyBriefing
-import com.nzd.antigravitypanel.domain.difficultyNameOf
+import com.nzd.antigravitypanel.domain.difficultyDisplayNameOf
 import com.nzd.antigravitypanel.domain.mapNameOf
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.ui.component.HintBlock
@@ -62,6 +62,7 @@ import com.nzd.antigravitypanel.ui.format.formatHourRange
 import com.nzd.antigravitypanel.ui.format.formatPercent
 import com.nzd.antigravitypanel.ui.format.formatScore
 import com.nzd.antigravitypanel.ui.format.formatTimeShort
+import com.nzd.antigravitypanel.ui.signin.HintCard
 import com.nzd.antigravitypanel.util.currentEpochSeconds
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -222,6 +223,7 @@ fun DailyBriefingScreen(
         show = sheet == BriefingSheet.RECORDS,
         dayTitle = day.title,
         briefing = briefing,
+        config = config,
         strongCount = strongCount,
         carryCount = carryCount,
         onDismiss = { sheet = BriefingSheet.NONE },
@@ -292,7 +294,7 @@ private fun BriefingStats(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             StatCard(
-                title = "最活跃时段",
+                title = "高峰活跃时段",
                 value = formatHourRange(briefing.activeHour),
                 modifier = Modifier
                     .weight(1f)
@@ -378,7 +380,7 @@ private fun TimelineRow(
     onClick: () -> Unit,
 ) {
     val mode = modeOf(match.mapId)
-    val difficulty = difficultyNameOf(match.subModeType, config)
+    val difficulty = difficultyDisplayNameOf(match.subModeType, config)
     val result = when {
         !match.finished -> TimelineResult("未完成", MiuixTheme.colorScheme.onSurfaceVariantSummary)
         match.isWin -> TimelineResult("胜利", MiuixTheme.colorScheme.primary)
@@ -598,16 +600,24 @@ private fun ResultBadge(
 }
 
 /**
- * ① 当日场次弹层：胜 / 负 / MVP / 实力 / 带飞 / 通关率 / 最长连胜。
+ * ① 当日场次弹层：胜 / 负 / MVP / 最长连胜 / 最多游玩 / 通关率 / 实力 / 带飞。
  *
+ * 排布是**四行两列**，顺序固定：
+ * ```
+ * 胜场      负场
+ * MVP 次数  最长连胜
+ * 最多游玩  通关率
+ * 实力局    带飞局
+ * ```
  * 实力局与带飞局要全队 Boss 伤害，只有**详情已缓存**的局才算得出来 ——
- * 和历史页同一份数据源。所以底部那句说明不是废话：它解释了"为什么这里比列表里少"。
+ * 和历史页同一份数据源。所以底部那块说明不是废话：它解释了"为什么这里比列表里少"。
  */
 @Composable
 private fun RecordsSheet(
     show: Boolean,
     dayTitle: String,
     briefing: DailyBriefing,
+    config: GameConfigDto,
     strongCount: Int,
     carryCount: Int,
     onDismiss: () -> Unit,
@@ -627,26 +637,23 @@ private fun RecordsSheet(
                     "胜场" to "${briefing.winCount} 场",
                     "负场" to "${briefing.lossCount} 场",
                     "MVP 次数" to "${briefing.mvpCount} 次",
-                    "通关率" to formatPercent(briefing.winCount, briefing.finishedCount),
                     "最长连胜" to "${briefing.longestWinStreak} 场",
+                    "最多游玩" to (briefing.topMapId?.let { mapNameOf(it, config) } ?: "—"),
+                    "通关率" to formatPercent(briefing.winCount, briefing.finishedCount),
                     "实力局" to "$strongCount 局",
                     "带飞局" to "$carryCount 局",
                 ),
                 columns = 2,
             )
-            if (briefing.unfinishedCount > 0) {
-                Text(
-                    text = "另有 ${briefing.unfinishedCount} 场中途退出，不计入胜负与通关率",
-                    modifier = Modifier.padding(top = 14.dp),
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Text(
-                text = "实力局 / 带飞局只统计已缓存详情的对局",
-                modifier = Modifier.padding(top = 6.dp),
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            // 灰底说明块，和签到二级页底部的 HintCard 同一个样式（副色底 + 灰字）
+            HintCard(
+                text = buildString {
+                    if (briefing.unfinishedCount > 0) {
+                        append("另有 ${briefing.unfinishedCount} 场中途退出，不计入胜负与通关率。\n")
+                    }
+                    append("实力局 / 带飞局只统计已缓存详情的对局。")
+                },
+                modifier = Modifier.padding(top = 16.dp),
             )
         }
     }
@@ -675,21 +682,10 @@ private fun ActiveHoursSheet(
                 .fillMaxWidth()
                 .padding(bottom = 20.dp),
         ) {
-            Text(
-                text = if (briefing.activeHour != null) {
-                    "高峰 ${formatHourRange(briefing.activeHour)}"
-                } else {
-                    "这一天没有对局"
-                },
-                fontSize = 14.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
             HourBarChart(
                 counts = briefing.hourCounts,
                 peakHour = briefing.activeHour,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
             Row(
                 modifier = Modifier

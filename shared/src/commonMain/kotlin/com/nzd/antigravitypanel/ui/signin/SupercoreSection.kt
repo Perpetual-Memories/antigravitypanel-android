@@ -224,16 +224,9 @@ fun SupercoreSection(
                     }
                 }
 
-                Button(
-                    modifier = Modifier
-                        .padding(top = if (state.needsTeamConfirm) 10.dp else 14.dp)
-                        .fillMaxWidth(),
-                    onClick = onRunNow,
-                    // 没成团时点了也只会回"网络繁忙"，直接按住
-                    enabled = !state.needsTeamConfirm && !state.running && !state.loading,
-                ) {
-                    Text("立即领取并抽奖")
-                }
+                // 卡片上**不再摆**「立即领取并抽奖」：这一屏是看状态的，
+                // 手动跑一次的动作收在「自动签到」那个弹层里（同一颗按钮还在那儿）。
+                // 卡上留一颗通栏主按钮，会让人以为每次进这页都得点一下。
             }
         }
     }

@@ -91,6 +91,8 @@ class DailyBriefingTest {
         assertEquals(2, briefing.longestWinStreak)
         assertEquals(0, briefing.mvpCount)
         assertEquals(4, briefing.finishedCount)
+        // 三张精绝古城 + 一张空间站 ⇒ 最多游玩的是 17
+        assertEquals(17, briefing.topMapId)
     }
 
     @Test
@@ -183,6 +185,7 @@ class DailyBriefingTest {
         assertEquals(0, briefing.playtimeSec)
         assertNull(briefing.activeHour)
         assertNull(briefing.topMode)
+        assertNull(briefing.topMapId)
         assertEquals(listOf(0, 0, 0), briefing.modeCounts.map { it.count })
     }
 

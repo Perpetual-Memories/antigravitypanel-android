@@ -35,7 +35,7 @@ import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
 import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.domain.GameMode
 import com.nzd.antigravitypanel.domain.MatchTag
-import com.nzd.antigravitypanel.domain.difficultyNameOf
+import com.nzd.antigravitypanel.domain.difficultyDisplayNameOf
 import com.nzd.antigravitypanel.domain.mapNameOf
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.ui.component.CardCornerRadius
@@ -315,7 +315,7 @@ private fun MatchRow(
                 }
             }
 
-            val difficulty = difficultyNameOf(match.subModeType, config)
+            val difficulty = difficultyDisplayNameOf(match.subModeType, config)
             Text(
                 text = mapNameOf(match.mapId, config) +
                     (difficulty?.let { "-$it" } ?: ""),

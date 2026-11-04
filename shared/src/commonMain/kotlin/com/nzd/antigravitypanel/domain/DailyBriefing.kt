@@ -75,6 +75,7 @@ data class BriefingModeCount(
  * @param hourCounts 24 个整点各开了几局。活跃时段弹层里的柱状图直接用它。
  * @param mvpCount 拿过 MVP（`Rank == 1`）的局数。
  * @param longestWinStreak 当天最长连胜（按开赛时间顺序，中途退出不打断，输了才断）。
+ * @param topMapId 当天打得最多的地图。并列时取**最早出现**的那张（时间线从上往下扫到的第一张）。
  */
 data class DailyBriefing(
     val dayStartSec: Long,
@@ -88,6 +89,7 @@ data class DailyBriefing(
     val hourCounts: List<Int>,
     val mvpCount: Int,
     val longestWinStreak: Int,
+    val topMapId: Int?,
 ) {
     val matchCount: Int get() = matches.size
 
@@ -136,11 +138,15 @@ fun buildDailyBriefing(
     var streak = 0
     var longestStreak = 0
     val modeCounts = COUNTABLE_MODES.associateWith { 0 }.toMutableMap()
+    // LinkedHashMap：插入顺序就是开赛顺序，maxByOrNull 取到第一个最大值，
+    // 于是"并列最多"时落在最早打的那张图上。
+    val mapCounts = LinkedHashMap<Int, Int>()
 
     for (match in dayMatches) {
         if (match.duration > 0) playtime += match.duration
         hourHistogram[hourOf(match.eventTimeSec)]++
         modeOf(match.mapId).let { mode -> modeCounts[mode] = (modeCounts[mode] ?: 0) + 1 }
+        mapCounts[match.mapId] = (mapCounts[match.mapId] ?: 0) + 1
         if (match.finished && match.rankValue == 1) mvp++
         // 连胜：按升序扫一遍，赢 +1、输清零；中途退出的局既不算赢也不算输，
         // **不打断**连胜（它是"没打完"，不是"输了"）。
@@ -176,6 +182,7 @@ fun buildDailyBriefing(
         hourCounts = hourHistogram.toList(),
         mvpCount = mvp,
         longestWinStreak = longestStreak,
+        topMapId = mapCounts.entries.maxByOrNull { it.value }?.key,
     )
 }
 

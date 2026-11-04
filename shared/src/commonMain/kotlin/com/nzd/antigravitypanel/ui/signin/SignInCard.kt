@@ -342,9 +342,13 @@ private fun XinyueSignInRow(
  * 四态，颜色和图标一起换：
  * - [SignInRowState.Signing]：`CircularProgressIndicator` 的不确定态（转圈）。
  *   用 Miuix 的进度指示器而不是某个"加载中"图标——它不是图标，是"还在跑"这件事本身。
- * - [SignInRowState.Failed]：红叉。这一轮坏了，比"没办"更重。
- * - [SignInRowState.Pending]：灰叉。还没签 / 条件没满足。
+ * - [SignInRowState.Failed] / [SignInRowState.Pending]：红叉。**两态都红**：
+ *   灰叉在浅色主题下几乎和正文一个色，扫一眼分不出"没办"和"办完了"；
+ *   红色是这套卡片里唯一的"还差一步"信号（具体的失败原因由下面那行小字说）。
  * - [SignInRowState.Done]：绿勾。
+ *
+ * ⚠️ 两颗图标都用 **Demibold** 字重（`MiuixIcons.Demibold.*`）：默认那档在 18dp 上
+ * 笔画偏细，和旁边 15sp Medium 的标题摆在一起显得发虚。
  *
  * ⚠️ 转圈那颗的轨道色设成透明：18dp 的环上再叠一圈 `secondaryContainer`，
  * 看起来像一颗实心圆环，反而看不出在转。
@@ -362,17 +366,13 @@ private fun SignInStateIcon(state: SignInRowState) {
             size = 18.dp,
         )
         SignInRowState.Failed, SignInRowState.Pending -> Icon(
-            imageVector = MiuixIcons.Close,
+            imageVector = MiuixIcons.Demibold.Close,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = if (state == SignInRowState.Failed) {
-                MiuixTheme.colorScheme.error
-            } else {
-                MiuixTheme.colorScheme.onSurfaceVariantSummary
-            },
+            tint = MiuixTheme.colorScheme.error,
         )
         SignInRowState.Done -> Icon(
-            imageVector = MiuixIcons.Ok,
+            imageVector = MiuixIcons.Demibold.Ok,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = signInAccentColor(),

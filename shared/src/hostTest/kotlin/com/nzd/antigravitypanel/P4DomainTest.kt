@@ -25,6 +25,8 @@ import com.nzd.antigravitypanel.domain.applyMatchFilter
 import com.nzd.antigravitypanel.domain.availableMaps
 import com.nzd.antigravitypanel.domain.buildOfficialMapStats
 import com.nzd.antigravitypanel.domain.difficultyBucketOf
+import com.nzd.antigravitypanel.domain.difficultyDisplayName
+import com.nzd.antigravitypanel.domain.difficultyDisplayNameOf
 import com.nzd.antigravitypanel.domain.difficultyNameOf
 import com.nzd.antigravitypanel.domain.difficultyOptions
 import com.nzd.antigravitypanel.domain.difficultyOptionsForMode
@@ -113,6 +115,18 @@ class P4DomainTest {
         assertEquals("超限", difficultyNameOf(33))
         // 配置优先：官方哪天改了名字，以服务端为准
         assertEquals("普通", difficultyNameOf(5, config))
+    }
+
+    @Test
+    fun difficultyDisplayCollapsesTormentTiers() {
+        // 展示用：折磨I~VI 一律只有两个字「折磨」（它们在官方的统计口径里本来就是同一档）
+        assertEquals("折磨", difficultyDisplayNameOf(6))
+        assertEquals("折磨", difficultyDisplayNameOf(11))
+        assertEquals("折磨", difficultyDisplayName("折磨III"))
+        // 其他难度原样显示，别顺手把「挑战模式」也改了
+        assertEquals("炼狱", difficultyDisplayNameOf(5))
+        assertEquals("挑战模式", difficultyDisplayName("挑战模式"))
+        assertNull(difficultyDisplayNameOf(99))
     }
 
     @Test

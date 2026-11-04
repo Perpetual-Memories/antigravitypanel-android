@@ -196,6 +196,24 @@ fun difficultyNameOf(subModeType: Int, config: GameConfigDto = GameConfigDto()):
         ?: OFFICIAL_DIFFICULTY_NAMES[subModeType]
 
 /**
+ * 展示用的难度名：折磨 I~VI 一律显示成两个字「折磨」。
+ *
+ * 历史 / 详情 / 简报这几处都是在**一格很窄的地方**贴难度（地图名后面那个小标签），
+ * 「折磨III」比「炼狱」宽一倍，一屏里混着不同宽度的标签对不齐。
+ * 官方在统计口径里本来就把六个折磨档合成一档（见 [difficultyBucketOf]），
+ * 展示上跟着合并，正好和地图分布页那列对上。
+ *
+ * ⚠️ 只换**显示**，[difficultyNameOf] 保持原样 —— 筛选（`difficultyMatches`）、
+ * 导出、配置匹配都还在用原始名字，改了会连带把"按折磨I筛"弄坏。
+ */
+fun difficultyDisplayNameOf(subModeType: Int, config: GameConfigDto = GameConfigDto()): String? =
+    difficultyNameOf(subModeType, config)?.let(::difficultyDisplayName)
+
+/** [difficultyDisplayNameOf] 的字符串版本，规则只有一条：以「折磨」开头就折成「折磨」。 */
+fun difficultyDisplayName(name: String): String =
+    if (name.startsWith("折磨")) "折磨" else name
+
+/**
  * 统计口径的**难度档位**名 —— 地图分布页按这个分组，而不是按 [difficultyNameOf] 的原始名。
  *
  * 三条归一化全部照官方前端（`GC()` 里给地图卡片算 `diffStats` 的那段，
