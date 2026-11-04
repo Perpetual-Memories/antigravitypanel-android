@@ -82,6 +82,7 @@ import com.nzd.antigravitypanel.data.store.createKeyValueStore
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.ui.about.AboutScreen
 import com.nzd.antigravitypanel.ui.activity.ActivityListScreen
+import com.nzd.antigravitypanel.ui.briefing.DailyBriefingScreen
 import com.nzd.antigravitypanel.ui.build.BuildPlanScreen
 import com.nzd.antigravitypanel.ui.wiki.AutoStoriesIcon
 import com.nzd.antigravitypanel.ui.wiki.WikiBackBridge
@@ -175,6 +176,7 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.MapAlbum
+import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tune
@@ -185,10 +187,11 @@ private object Tabs {
     const val OVERVIEW = 0
     const val HISTORY = 1
     const val MAPS = 2
-    const val SETTINGS = 3
-    const val COUNT = 4
+    const val BRIEFING = 3
+    const val SETTINGS = 4
+    const val COUNT = 5
 
-    val TITLES = listOf("概览", "历史战绩", "地图分布", "设置")
+    val TITLES = listOf("概览", "历史战绩", "地图分布", "每日简报", "设置")
 
     /** 概览页顶栏显示应用名而不是"概览"，与 HyperIsland 的首页一致。 */
     const val APP_NAME = "反重力数据面板"
@@ -1454,6 +1457,9 @@ private fun MainScreen(
             NavigationItem(Tabs.TITLES[Tabs.OVERVIEW], MiuixIcons.Home),
             NavigationItem(Tabs.TITLES[Tabs.HISTORY], MiuixIcons.ListView),
             NavigationItem(Tabs.TITLES[Tabs.MAPS], MiuixIcons.MapAlbum),
+            // 每日简报排在「地图分布」之后、设置之前：前三个是"看数据"，
+            // 这一页也是，设置是"改配置" —— 别把设置挤到中间去。
+            NavigationItem(Tabs.TITLES[Tabs.BRIEFING], MiuixIcons.Notes),
             NavigationItem(Tabs.TITLES[Tabs.SETTINGS], MiuixIcons.Settings),
         )
     }
@@ -1699,6 +1705,19 @@ private fun MainScreen(
                                             )
                                         }
                                     }
+
+                                    // 每日简报读的是本地库，而"今天"要靠一轮同步才齐。
+                                    // 刷新入口和概览页是同一个（refreshAll），
+                                    // 不要在这里单拉接口 —— 那会把凭证 / 签到 / 缓存的口径拆成两套。
+                                    Tabs.BRIEFING -> TopBarGlassChip {
+                                        IconButton(onClick = onRefresh) {
+                                            Icon(
+                                                imageVector = MiuixIcons.Refresh,
+                                                contentDescription = "刷新数据",
+                                                tint = MiuixTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                    }
                                 }
                             },
                         ) { insets ->
@@ -1737,6 +1756,16 @@ private fun MainScreen(
 
                                 Tabs.MAPS -> MapDistributionScreen(
                                     viewModel = mapViewModel,
+                                    insets = insets,
+                                )
+
+                                Tabs.BRIEFING -> DailyBriefingScreen(
+                                    matchesFlow = historyViewModel.allMatches,
+                                    config = gameConfig,
+                                    // 换号后库里还留着上一个号的对局，按 openid 收一道；
+                                    // 没登录（离线导入）时传 null，不做账号过滤。
+                                    openId = cookie?.openid,
+                                    onOpenDetail = { roomId -> onOpenMatchDetail(roomId) },
                                     insets = insets,
                                 )
 

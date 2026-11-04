@@ -165,3 +165,37 @@ fun formatCountdownClock(totalSeconds: Long): String {
 /** 胜率等百分比。`total == 0` 时返回 `—`，别显示 NaN%。 */
 fun formatPercent(win: Int, total: Int): String =
     if (total <= 0) "—" else "${win * 100 / total}%"
+
+/**
+ * 每日简报的「游戏时长」：一天里所有对局的时长之和。
+ *
+ * 和 [formatDuration] 分工不同 —— 那个是单局（`12分34秒`），这里是当天累计，
+ * 单位要到小时，而且秒没有意义（几十分之一的误差在一个"今天玩了多久"的数字里读不出来）。
+ * 正好一小时不写 `0分`：`2小时` 比 `2小时0分` 干净。
+ */
+fun formatBriefingPlaytime(totalSeconds: Int): String {
+    if (totalSeconds <= 0) return "0分"
+    val hours = totalSeconds / 3600
+    val minutes = totalSeconds % 3600 / 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}小时${minutes}分"
+        hours > 0 -> "${hours}小时"
+        // 不到一分钟的对局（中途退出）单独说一句，摆 0分 会像"没打"
+        minutes == 0 -> "不足1分"
+        else -> "${minutes}分"
+    }
+}
+
+/**
+ * 每日简报的「最活跃时段」：`06:00 - 07:00`。
+ *
+ * 只给一小时的窗口，和 PC 端的高峰提示同一口径 —— 一天里最密集的那一小时，
+ * 比"6 点到 11 点都在打"更有信息量。23 点那档收尾写 `00:00`，不写成 `24:00`。
+ */
+fun formatHourRange(hour: Int?): String {
+    if (hour == null) return "—"
+    val start = hour.coerceIn(0, 23)
+    return "${padTwo(start)}:00 - ${padTwo((start + 1) % 24)}:00"
+}
+
+private fun padTwo(value: Int): String = if (value < 10) "0$value" else value.toString()
