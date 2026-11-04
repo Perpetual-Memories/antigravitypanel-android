@@ -37,6 +37,9 @@ data class RemoteConfig(
     val pageFrameVersion: Int = 51,
     val miniProgramAppId: String = "wx4e8cbe4fb0eca54c",
     val userAgent: String = DEFAULT_USER_AGENT,
+    /** 应用宝扫码换票跟随 PC 的 WMPF 环境，不与普通战绩请求共用版本/UA。 */
+    val scanLoginPageFrameVersion: Int = 57,
+    val scanLoginUserAgent: String = DEFAULT_SCAN_LOGIN_USER_AGENT,
     /**
      * 远程覆盖地址（GitHub raw）。留空表示只用安装包内置的那份，不发请求。
      * 建好独立配置仓库后填进来即可，失败会自动退回内置值。
@@ -83,6 +86,8 @@ internal const val BUILTIN_CONFIG_JSON = """
   "pageFrameVersion": 51,
   "miniProgramAppId": "wx4e8cbe4fb0eca54c",
   "userAgent": "Mozilla/5.0 (Linux; Android 16; Pixel 8 Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/146.0.0.0 XWEB/1460249 MMWEBSDK/20260502 MicroMessenger/8.0.72.3085(0x28004845) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 MiniProgramEnv/android",
+  "scanLoginPageFrameVersion": 57,
+  "scanLoginUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF XWEB/25560",
   "configUrl": "",
   "pageSize": 10,
   "maxPages": 10
@@ -94,3 +99,9 @@ private const val DEFAULT_USER_AGENT =
         "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/146.0.0.0 " +
         "XWEB/1460249 MMWEBSDK/20260502 MicroMessenger/8.0.72.3085(0x28004845) " +
         "WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64 MiniProgramEnv/android"
+
+private const val DEFAULT_SCAN_LOGIN_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 " +
+        "MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI " +
+        "MiniProgramEnv/Windows WindowsWechat/WMPF XWEB/25560"

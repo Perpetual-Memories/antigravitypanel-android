@@ -11,6 +11,17 @@ expect fun openUrl(url: String)
 expect fun copyToClipboard(text: String, label: String)
 
 /**
+ * 调系统分享面板把一段文本发出去。
+ *
+ * 只给 wiki 的「分享链接」用，所以签名就一条文本 + 一个可选标题，
+ * 不做成通用的文件 / 图文分享。
+ *
+ * @param title 分享面板上显示的标题，**可以为空**：
+ *   不是所有目标应用都吃这个字段，空着也不会崩。
+ */
+expect fun shareText(text: String, title: String)
+
+/**
  * 弹一条短暂的提示。
  *
  * 用在"已经替你做了某件事，但那件事不值得弹窗"的场合：比如检查更新前把提取码

@@ -84,15 +84,27 @@ class MatchBossStats(
  * 但 openId 是空串时（服务端偶尔这么给）退回到"排除同一个对象"——
  * 否则 `"" != ""` 会把所有人都当成自己，第二名永远是 0。
  */
-fun bossStatOf(
-    roomId: String,
-    detail: GameDetailDto,
-    nowSec: Long,
-): MatchBossStatEntity? {
+/**
+ * 一局的 Boss 伤害三个口径：自己 / 全队 / 第二名（除自己外最高）。
+ *
+ * 从 [bossStatOf] 里拆出来是因为**近五场也要它**：概览那边要数"尽力 / 带飞"的局数，
+ * 判据和标签完全一样。两处各写一遍 `sumOf` / `maxOfOrNull` 迟早会分叉，
+ * 而分叉的表现是"历史页标了带飞，概览却不算" —— 这种不一致最难解释。
+ *
+ * 返回 null = 这份详情不完整（没有自己、或队伍名单是空的），调用方不该下结论。
+ */
+data class BossDamageShare(
+    val self: Long,
+    val team: Long,
+    val rival: Long,
+)
+
+fun bossDamageShareOf(detail: GameDetailDto): BossDamageShare? {
     val self = detail.loginUserDetail ?: return null
     val players = detail.list
     if (players.isEmpty()) return null
 
+    // 名单里的"自己"按 openid 认；拿不到 openid 时退化成引用比较（列表里可能压根没有自己）
     val selfId = self.baseDetail?.vOpenID.orEmpty()
     val rivals = if (selfId.isBlank()) {
         players.filter { it !== self }
@@ -100,11 +112,25 @@ fun bossStatOf(
         players.filter { it.baseDetail?.vOpenID.orEmpty() != selfId }
     }
 
+    return BossDamageShare(
+        self = self.huntingDetails?.damageTotalOnBoss ?: 0L,
+        team = players.sumOf { it.huntingDetails?.damageTotalOnBoss ?: 0L },
+        rival = rivals.maxOfOrNull { it.huntingDetails?.damageTotalOnBoss ?: 0L } ?: 0L,
+    )
+}
+
+fun bossStatOf(
+    roomId: String,
+    detail: GameDetailDto,
+    nowSec: Long,
+): MatchBossStatEntity? {
+    val share = bossDamageShareOf(detail) ?: return null
+
     return MatchBossStatEntity(
         roomId = roomId,
-        selfBossDamage = self.huntingDetails?.damageTotalOnBoss ?: 0L,
-        teamBossDamage = players.sumOf { it.huntingDetails?.damageTotalOnBoss ?: 0L },
-        rivalBossDamage = rivals.maxOfOrNull { it.huntingDetails?.damageTotalOnBoss ?: 0L } ?: 0L,
+        selfBossDamage = share.self,
+        teamBossDamage = share.team,
+        rivalBossDamage = share.rival,
         updatedAtSec = nowSec,
     )
 }

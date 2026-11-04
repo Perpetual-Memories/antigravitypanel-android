@@ -804,6 +804,9 @@ class P4DomainTest {
         // Boss 伤害 / 金币本地没有，必须是 null 而不是 0
         assertNull(result?.avgBossDamage)
         assertNull(result?.avgCoin)
+        // 时长本地有（每局 1200 秒），照常算得出来；标签要全队伤害，本地判不了 ⇒ null
+        assertEquals(1200, result?.avgDuration)
+        assertNull(result?.tagCount)
         assertTrue(result?.localOnly == true)
     }
 
@@ -825,14 +828,32 @@ class P4DomainTest {
     @Test
     fun summarizeRecentAveragesAndCountsMvp() {
         val details = listOf(
-            detail(selfScore = 100, others = listOf(80, 60), boss = 1000, coin = 200),
-            detail(selfScore = 50, others = listOf(90), boss = 500, coin = 100),
+            detail(selfScore = 100, others = listOf(80, 60), boss = 1000, coin = 200, duration = 900),
+            detail(selfScore = 50, others = listOf(90), boss = 500, coin = 100, duration = 1200),
         )
         val result = summarizeRecent(details)
         assertEquals(
-            RecentFive(sampleCount = 2, avgBossDamage = 750, mvpCount = 1, avgScore = 75, avgCoin = 150),
+            RecentFive(
+                sampleCount = 2,
+                avgBossDamage = 750,
+                mvpCount = 1,
+                avgScore = 75,
+                avgCoin = 150,
+                // 第一局 1000 / 3000 = 33%、且不到第二名的两倍 ⇒ 没标签；
+                // 第二局 500 / 1000 = 50% ⇒ 命中「实力局」。所以只算一局。
+                avgDuration = 1050,
+                tagCount = 1,
+            ),
             result,
         )
+    }
+
+    @Test
+    fun 时长全是零时场均时长必须是空而不是零() {
+        // 详情里 iDuration 偶尔是 0（老对局 / 中途退出）。算进分母会把场均时长拉低，
+        // 摆一个 0 出来更糟：用户会读成"这局没打"。整格不显示才是对的。
+        val details = listOf(detail(selfScore = 100, others = emptyList(), boss = 0, coin = 0))
+        assertNull(summarizeRecent(details)?.avgDuration)
     }
 
     @Test
@@ -853,9 +874,10 @@ class P4DomainTest {
         others: List<Long>,
         boss: Long,
         coin: Long,
+        duration: Int = 0,
     ): com.nzd.antigravitypanel.data.remote.dto.GameDetailDto {
         fun player(score: Long) = com.nzd.antigravitypanel.data.remote.dto.PlayerDetailDto(
-            baseDetail = GameRecordDto(iScore = score),
+            baseDetail = GameRecordDto(iScore = score, iDuration = duration),
             huntingDetails = com.nzd.antigravitypanel.data.remote.dto.HuntingDetailsDto(
                 damageTotalOnBoss = boss,
                 totalCoin = coin,

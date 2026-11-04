@@ -6,8 +6,13 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -263,8 +268,15 @@ private fun glassProgressSpec(showing: Boolean): AnimationSpec<Float> {
  *
  * @param glassAlpha 显隐进度。**只缩放阴影的大小**（不透明度恒定），
  *   和参考实现一致：progress 为 0 时环宽和模糊半径都收到 0，自然就看不见了。
+ * @param capsule 是不是一条**横向胶囊**（账号信息那颗）。默认的圆形阴影是按
+ *   `minDimension / 2` 算半径的，套在一条 160dp 宽的胶囊上会在正中间画一个小圆环；
+ *   胶囊要走矩形圆角环，半径同样取高度的一半。
  */
-internal expect fun Modifier.glassDropShadow(glassAlpha: Float, darkTheme: Boolean): Modifier
+internal expect fun Modifier.glassDropShadow(
+    glassAlpha: Float,
+    darkTheme: Boolean,
+    capsule: Boolean = false,
+): Modifier
 
 /**
  * 顶栏按钮的圆形玻璃底。
@@ -329,6 +341,144 @@ internal fun TopBarGlassChip(
                 .background(color = containerColor, shape = CircleShape)
         }
         Box(modifier = Modifier.size(size).then(material))
+        content()
+    }
+}
+
+/**
+ * 顶栏右侧那颗**胶囊**玻璃底，里面横排好几颗按钮（刷新 / 倒退 / 更多）。
+ *
+ * 和 [TopBarGlassChip] 的唯一区别是形状：圆给单颗图标用，胶囊给一组用 ——
+ * 一组按钮共用一条底边，读起来是"一个工具栏"，而不是几颗各飘各的圆。
+ *
+ * 高度仍然钉在 [TOP_BAR_GLASS_SIZE]，这样左右两侧视觉重量对得上。
+ */
+@Composable
+internal fun TopBarGlassCapsule(
+    modifier: Modifier = Modifier,
+    height: Dp = TOP_BAR_GLASS_SIZE,
+    progress: State<Float> = LocalTopBarGlassProgress.current,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val glassAlpha = progress.value
+    val darkTheme = isInDarkTheme()
+    val backdrop = LocalBarBlurBackdrop.current
+    val containerColor = if (darkTheme) GLASS_CONTAINER_DARK else GLASS_CONTAINER_LIGHT
+    // ⚠️ 半径必须**在绘制时**按当前 size 算：drawRoundRect 的默认 size 取 DrawScope
+    // 的 size，提到 remember 里就等于拿组合期那一帧的宽高，胶囊宽度一变就崩。
+    val onDrawSurface: (DrawScope.() -> Unit)? = remember(containerColor) {
+        {
+            drawRoundRect(
+                color = containerColor,
+                cornerRadius = CornerRadius(size.minDimension / 2f),
+            )
+        }
+    }
+    // 和 [TopBarGlassChip] 同一个 highlight：胶囊两端是半圆，边缘光要跟着走一圈。
+    val highlight: BackdropEffectScope.() -> Highlight = remember(darkTheme) {
+        {
+            if (darkTheme) Highlight.GlassStrokeSmallDark else Highlight.GlassStrokeSmallLight
+        }
+    }
+
+    Box(
+        // 阴影同样挂在外层：胶囊比圆更容易被裁 —— 两端圆弧处的柔光最明显。
+        modifier = modifier
+            .height(height)
+            .glassDropShadow(glassAlpha = glassAlpha, darkTheme = darkTheme),
+        contentAlignment = Alignment.Center,
+    ) {
+        val material = if (backdrop != null) {
+            Modifier.drawBackdrop(
+                backdrop = backdrop,
+                shape = CapsuleShapeBlock,
+                effects = GlassEffects,
+                highlight = highlight,
+                layerBlock = { alpha = glassAlpha },
+                onDrawSurface = onDrawSurface,
+            )
+        } else {
+            Modifier
+                .graphicsLayer { alpha = glassAlpha }
+                .background(color = containerColor, shape = CapsuleShape)
+        }
+        Row(
+            modifier = Modifier.height(height).then(material),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
+    }
+}
+
+/** 形状同样必须是稳定常量：`drawBackdrop` 按引用比较 shape。 */
+private val CapsuleShapeBlock: () -> Shape = { CapsuleShape }
+
+private val CapsuleShape: Shape = RoundedCornerShape(percent = 50)
+
+/**
+ * 顶栏左侧**账号胶囊**的玻璃底：尺寸跟着内容走。
+ *
+ * 和 [TopBarGlassCapsule] 的区别只有一个：那个是给一排等高的图标按钮用的（高度钉死
+ * [TOP_BAR_GLASS_SIZE]），这个要给"头像 + 昵称 + 分区"这种**宽度随昵称变化**的胶囊当底，
+ * 所以尺寸完全由 [content] 决定，玻璃用 `matchParentSize` 铺满。
+ *
+ * 材质管线、底色、边缘光、阴影参数全部复用上面那几颗按钮的那一套 —— 这样滚动时
+ * 左右两边是**同一个进度、同一条曲线**，不会一边先亮一边后亮。
+ *
+ * ⚠️ 阴影必须走 `capsule = true`：默认那份阴影是按 `minDimension / 2` 画圆的，
+ * 套在 160dp 宽的胶囊上会在正中间画一个小圆环。
+ */
+@Composable
+internal fun TopBarGlassCapsuleSurface(
+    modifier: Modifier = Modifier,
+    progress: State<Float> = LocalTopBarGlassProgress.current,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val glassAlpha = progress.value
+    val darkTheme = isInDarkTheme()
+    val backdrop = LocalBarBlurBackdrop.current
+    val containerColor = if (darkTheme) GLASS_CONTAINER_DARK else GLASS_CONTAINER_LIGHT
+    // 半径在绘制期按当前 size 算（理由同 [TopBarGlassCapsule] 的 onDrawSurface）
+    val onDrawSurface: (DrawScope.() -> Unit)? = remember(containerColor) {
+        {
+            drawRoundRect(
+                color = containerColor,
+                cornerRadius = CornerRadius(size.minDimension / 2f),
+            )
+        }
+    }
+    val highlight: BackdropEffectScope.() -> Highlight = remember(darkTheme) {
+        {
+            if (darkTheme) Highlight.GlassStrokeSmallDark else Highlight.GlassStrokeSmallLight
+        }
+    }
+
+    Box(
+        modifier = modifier.glassDropShadow(
+            glassAlpha = glassAlpha,
+            darkTheme = darkTheme,
+            capsule = true,
+        ),
+    ) {
+        val material = if (backdrop != null) {
+            Modifier
+                .matchParentSize()
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = CapsuleShapeBlock,
+                    effects = GlassEffects,
+                    highlight = highlight,
+                    layerBlock = { alpha = glassAlpha },
+                    onDrawSurface = onDrawSurface,
+                )
+        } else {
+            Modifier
+                .matchParentSize()
+                .graphicsLayer { alpha = glassAlpha }
+                .background(color = containerColor, shape = CapsuleShape)
+        }
+        // 玻璃先画、内容后画：玻璃是"底"，不能压住头像和昵称
+        Box(modifier = material)
         content()
     }
 }

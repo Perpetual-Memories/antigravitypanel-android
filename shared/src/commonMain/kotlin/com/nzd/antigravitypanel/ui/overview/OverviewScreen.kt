@@ -34,6 +34,8 @@ import com.nzd.antigravitypanel.data.repo.OverviewMode
 import com.nzd.antigravitypanel.data.repo.RecentFive
 import com.nzd.antigravitypanel.data.repo.countOf
 import com.nzd.antigravitypanel.data.repo.formatPlaytime
+import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
+import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.domain.ActivityEvent
 import com.nzd.antigravitypanel.domain.soonestActivities
 import com.nzd.antigravitypanel.ui.build.BuildPlanCard
@@ -43,8 +45,11 @@ import com.nzd.antigravitypanel.ui.component.InfoText
 import com.nzd.antigravitypanel.ui.component.StatCard
 import com.nzd.antigravitypanel.ui.component.statusGlyphPainter
 import com.nzd.antigravitypanel.ui.format.formatCompact
+import com.nzd.antigravitypanel.ui.format.formatDuration
+import com.nzd.antigravitypanel.ui.format.formatScoreWithUnit
 import com.nzd.antigravitypanel.ui.signin.QqGiftViewModel
 import com.nzd.antigravitypanel.ui.signin.SignInCard
+import com.nzd.antigravitypanel.ui.signin.SupercoreViewModel
 import com.nzd.antigravitypanel.ui.signin.XinyueViewModel
 import com.nzd.antigravitypanel.ui.signin.SignInViewModel
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
@@ -84,6 +89,7 @@ fun OverviewScreen(
     signInViewModel: SignInViewModel,
     qqGiftViewModel: QqGiftViewModel,
     xinyueViewModel: XinyueViewModel,
+    supercoreViewModel: SupercoreViewModel,
     onOpenSignIn: () -> Unit,
     onOpenAccountDetail: () -> Unit,
     onOpenAllActivities: () -> Unit,
@@ -96,6 +102,11 @@ fun OverviewScreen(
      * 而用户要的是"应用名像状态卡那样跟着页面移动"，所以只能放进列表里。
      */
     inlineTitle: String? = null,
+    /**
+     * 设置对象（不是读好的值）：这一页在 pager 的 `remember` 闭包里，
+     * 传值进来会钉死在第一帧 —— 用户在设置里改了积分单位，这里得立刻跟着变。
+     */
+    userSettings: UserSettings,
     modifier: Modifier = Modifier,
     insets: PaddingValues = PaddingValues(0.dp),
 ) {
@@ -103,7 +114,12 @@ fun OverviewScreen(
     val signInState by signInViewModel.state.collectAsState()
     val qqState by qqGiftViewModel.state.collectAsState()
     val xinyueState by xinyueViewModel.state.collectAsState()
+    val supercoreState by supercoreViewModel.state.collectAsState()
     var selectedEvent by remember { mutableStateOf<ActivityEvent?>(null) }
+
+    // 积分单位：概览近五场这一格要不要折成万
+    val scoreWanTargets by userSettings.scoreWanTargets.collectAsState()
+    val scoreUseWan = ScoreUnitTarget.OVERVIEW_RECENT in scoreWanTargets
 
     val recent = state.recent
 
@@ -196,6 +212,11 @@ fun OverviewScreen(
                 xinyueBound = xinyueState.bound,
                 xinyueError = xinyueState.error,
                 xinyueLoading = xinyueState.loading,
+                supercoreStatus = supercoreState.status,
+                supercoreAvailable = supercoreState.available,
+                supercoreBound = supercoreState.bound,
+                supercoreError = supercoreState.error,
+                supercoreLoading = supercoreState.loading,
                 onClick = onOpenSignIn,
             )
         }
@@ -234,7 +255,7 @@ fun OverviewScreen(
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     } else {
-                        InfoGrid(items = recentMetrics(recent))
+                        InfoGrid(items = recentMetrics(recent, scoreUseWan), columns = 3)
                     }
                 }
             }
@@ -330,15 +351,26 @@ fun OverviewScreen(
 /**
  * 近五场显示哪几格，取决于手上有什么数据。
  *
- * 登录态下四项都有；本地库（导入的 JSON）里没有 Boss 伤害和金币，
- * 那两格整个不出现 —— 补成 0 会让人误读，宁可少两格。
+ * 登录态下六项都有；本地库（导入的 JSON）里没有 Boss 伤害 / 金币 / 全队伤害，
+ * 那三格整个不出现 —— 补成 0 会让人误读，宁可少几格。
  * 击杀 / 胜场反过来只在本地统计里有，所以顺序也跟着变。
+ *
+ * 顺序按用户的排法固定成 3 列 × 2 行：
+ * ```
+ * 场均 Boss 伤害   场均通关时长   MVP 次数
+ * 场均积分         场均金币       尽力 / 带飞局数
+ * ```
+ * 数据缺项时后面的格子依次往前补，不去占位留空洞（`InfoGrid` 会补齐末行）。
+ *
+ * @param scoreUseWan 从设置读：概览近五场这一格要不要折成万。
  */
-private fun recentMetrics(recent: RecentFive): List<Pair<String, String>> = buildList {
+private fun recentMetrics(recent: RecentFive, scoreUseWan: Boolean): List<Pair<String, String>> = buildList {
     recent.avgBossDamage?.let { add("场均 Boss 伤害" to formatCompact(it)) }
+    recent.avgDuration?.let { add("场均通关时长" to formatDuration(it)) }
     add("MVP 次数" to "${recent.mvpCount} 次")
-    add("场均评分" to formatCompact(recent.avgScore))
+    add("场均积分" to formatScoreWithUnit(recent.avgScore, scoreUseWan))
     recent.avgCoin?.let { add("场均金币" to formatCompact(it)) }
+    recent.tagCount?.let { add("尽力/带飞局数" to "$it 局") }
     recent.avgKills?.let { add("场均击杀" to "$it") }
     recent.winCount?.let { add("胜场" to "$it / ${recent.sampleCount}") }
 }

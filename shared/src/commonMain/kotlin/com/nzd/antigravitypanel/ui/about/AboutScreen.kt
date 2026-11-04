@@ -66,6 +66,7 @@ import com.nzd.antigravitypanel.ui.component.appVersionName
 import com.nzd.antigravitypanel.ui.component.copyToClipboard
 import com.nzd.antigravitypanel.ui.component.developerAvatarPainter
 import com.nzd.antigravitypanel.ui.component.effect.BgEffectBackground
+import com.nzd.antigravitypanel.ui.component.MaterialGlyphs
 import com.nzd.antigravitypanel.ui.component.openUrl
 import com.nzd.antigravitypanel.ui.component.rememberPredictiveNavLayerState
 import com.nzd.antigravitypanel.ui.component.showToast
@@ -539,7 +540,7 @@ private fun AboutContent(
                 AboutSectionTitle("讨论")
                 Card(modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth()) {
                     AboutAction(
-                        title = "QQ 群",
+                        title = "PC 端《反重力数据面板》交流群",
                         icon = MiuixIcons.Community,
                         summary = QQ_GROUP,
                         endIcon = MiuixIcons.Copy,
@@ -568,7 +569,10 @@ private fun AboutContent(
                     ) { onCheckUpdate() }
                     AboutAction(
                         title = "GitHub",
-                        icon = MiuixIcons.Info,
+                        // 用 GitHub 自己的 mark：这一条点开的是仓库，图标该是"哪个站"，
+                        // 而不是"这是一条信息"（Info）。Material 图标集里没有品牌图标，
+                        // 所以这份 path 来自 Simple Icons（CC0），见 MaterialGlyphs 的注释。
+                        icon = MaterialGlyphs.GitHub,
                         summary = PROJECT_URL.removePrefix("https://"),
                         endIcon = MiuixIcons.Link,
                         endIconSize = 26.dp,

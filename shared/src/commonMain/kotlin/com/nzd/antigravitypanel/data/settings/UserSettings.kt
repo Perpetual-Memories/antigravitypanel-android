@@ -54,6 +54,16 @@ class UserSettings(
     val autoClaimXinyueGift: StateFlow<Boolean> = _autoClaimXinyueGift.asStateFlow()
 
     /**
+     * 「超核组队活动自动签到、领奖并抽奖」。默认**开**。
+     *
+     * 默认开的理由：这一套和另三块签到不同 —— 用户必须先手动填活动网址、再抓一遍
+     * HAR 才能用，配好那一刻本身就是"我要它自动"的意思。而且领取接口全是
+     * **按 flow 单点**的（不会批量领走未知奖励），抽奖也只花这个活动里攒的积分。
+     */
+    private val _autoSupercore = MutableStateFlow(DEFAULT_AUTO_SUPERCORE)
+    val autoSupercore: StateFlow<Boolean> = _autoSupercore.asStateFlow()
+
+    /**
      * 「概览页顶栏显示账号信息」（设置 → 外观）。默认**开**。
      *
      * 开了之后一级页的工具条左侧换成"头像 + 昵称 + 分区"那颗胶囊，
@@ -72,6 +82,56 @@ class UserSettings(
      */
     private val _compositeScore = MutableStateFlow(DEFAULT_COMPOSITE_SCORE)
     val compositeScore: StateFlow<Boolean> = _compositeScore.asStateFlow()
+
+    /**
+     * 「积分显示单位」：哪些页面把积分折成万显示（设置 → 外观）。
+     * 默认 [ScoreUnitTarget.DEFAULT]（历史战绩 + 概览近五场用万，详情页完整数字）。
+     */
+    private val _scoreWanTargets = MutableStateFlow(ScoreUnitTarget.DEFAULT)
+    val scoreWanTargets: StateFlow<Set<ScoreUnitTarget>> = _scoreWanTargets.asStateFlow()
+
+    /**
+     * 「代理模式（暂停官方同步）」（设置 → 实验性功能）。默认**关**。
+     *
+     * 打开之后**一个官方请求都不发**：战绩 / 活动 / 游戏配置这些"读"，
+     * 加上四块签到与领取这些"写"，全部停掉。
+     *
+     * 存在的理由是地理限制：wiki 主站部署在腾讯云 EdgeOne，少部分地区访问不通，
+     * 用户会临时挂代理来查资料。代理是**系统级**的，app 自己的请求也会跟着走，
+     * 而签到那些接口带的是**账号凭证**——从境外 IP 发过去，性质上就是"异地操作账号"。
+     * 这个开关让用户有能力主动掐断。
+     *
+     * ⚠️ 生命周期是**一次性**的，不是普通落盘开关：
+     * - 打开 → 写盘（[StoreKey.WIKI_PROXY_MODE]）+ 内存态生效
+     * - 冷启动 → 读到就**消费**：跳过这一轮自动签到，然后清键，UI 显示为关
+     *
+     * 这样"重启即恢复"和"重启那一次不误发请求"同时成立。两个反例都别走：
+     * 常驻落盘（用户忘了关 → 长期漏签丢奖励）、纯内存（堵不住冷启动抢跑）。
+     */
+    private val _proxyMode = MutableStateFlow(false)
+    val proxyMode: StateFlow<Boolean> = _proxyMode.asStateFlow()
+
+    /**
+     * **本次**冷启动要不要跳过自动签到。由 [restore] 消费 [StoreKey.WIKI_PROXY_MODE] 得到，
+     * 只用一次。
+     *
+     * 对外只暴露 [officialNetworkPaused]：它是"开关开着"或"本轮被保护"的并集，
+     * 调用点一律看那个，不用关心这一次是哪一种原因停的。
+     */
+    private var skipAutoActionsOnce = false
+
+    /**
+     * 当前是不是**不该发任何官方请求**。
+     *
+     * 各刷新入口（`AppContent` 的 `refreshAll` 和三个自动签到的 effect）统一判这一个值，
+     * 免得以后有人加了新入口、只记得判开关、漏掉冷启动那一轮保护。
+     */
+    private val _officialNetworkPaused = MutableStateFlow(false)
+    val officialNetworkPaused: StateFlow<Boolean> = _officialNetworkPaused.asStateFlow()
+
+    private fun syncPaused() {
+        _officialNetworkPaused.value = _proxyMode.value || skipAutoActionsOnce
+    }
 
     suspend fun restore() {
         val saved = store.read(StoreKey.RETENTION_MONTHS)?.toIntOrNull()
@@ -97,9 +157,19 @@ class UserSettings(
         // 默认开，所以判"关"而不是判"开"：没写过这个键时结果是 true
         _autoClaimXinyueGift.value = store.read(StoreKey.XINYUE_AUTO_CLAIM) != "0"
 
+        _autoSupercore.value = store.read(StoreKey.SUPERCORE_AUTO) != "0"
+
         _topBarAccount.value = store.read(StoreKey.TOP_BAR_ACCOUNT) != "0"
 
         _compositeScore.value = store.read(StoreKey.COMPOSITE_SCORE) != "0"
+
+        _scoreWanTargets.value = ScoreUnitTarget.decode(store.read(StoreKey.SCORE_WAN_TARGETS))
+
+        // 代理模式的一次性标记：读到就**消费**掉（先置 skip 再清键，中间没有挂起点，
+        // 不会被重入切开）。之后这次进程里开关一律显示关，但这一轮自动签到被跳过。
+        skipAutoActionsOnce = store.read(StoreKey.WIKI_PROXY_MODE) == "1"
+        if (skipAutoActionsOnce) store.remove(StoreKey.WIKI_PROXY_MODE)
+        syncPaused()
     }
 
     suspend fun setRetentionMonths(months: Int) {
@@ -174,6 +244,16 @@ class UserSettings(
     }
 
     /**
+     * 超核组队活动的自动签到 / 领奖 / 抽奖。默认开（[DEFAULT_AUTO_SUPERCORE]）。
+     *
+     * 关掉之后 app 只拉状态，不领也不抽；卡片上那颗「立即领取并抽奖」不受影响。
+     */
+    suspend fun setAutoSupercore(enabled: Boolean) {
+        store.write(StoreKey.SUPERCORE_AUTO, if (enabled) "1" else "0")
+        _autoSupercore.value = enabled
+    }
+
+    /**
      * 「概览页顶栏显示账号信息」（设置 → 外观）。默认开（[DEFAULT_TOP_BAR_ACCOUNT]）。
      *
      * 关掉是**纯回退**：工具条左侧空出来，应用名照旧折叠进工具条，和这一版之前一模一样。
@@ -191,6 +271,36 @@ class UserSettings(
     suspend fun setCompositeScore(enabled: Boolean) {
         store.write(StoreKey.COMPOSITE_SCORE, if (enabled) "1" else "0")
         _compositeScore.value = enabled
+    }
+
+    /**
+     * 「积分显示单位」：[ScoreUnitTarget] 的多选集合，写盘 + 内存一起更新。
+     *
+     * 传空集合是合法输入（= 三个页面都显示完整数字），不要在这里偷偷回退成默认值 ——
+     * 那会让用户永远关不掉。
+     */
+    suspend fun setScoreWanTargets(targets: Set<ScoreUnitTarget>) {
+        store.write(StoreKey.SCORE_WAN_TARGETS, ScoreUnitTarget.encode(targets))
+        _scoreWanTargets.value = targets
+    }
+
+    /**
+     * 切「代理模式」。
+     *
+     * 打开时顺带落一个一次性标记，让**下一次**冷启动也知道要保护一轮；
+     * 关掉时把标记清掉，下次冷启动就恢复正常同步。
+     *
+     * ⚠️ 落盘的是"下一次启动要不要保护"，不是开关本身 ——
+     * 开关状态只在内存里，所以重启后必然是关。
+     */
+    suspend fun setProxyMode(enabled: Boolean) {
+        if (enabled) {
+            store.write(StoreKey.WIKI_PROXY_MODE, "1")
+        } else {
+            store.remove(StoreKey.WIKI_PROXY_MODE)
+        }
+        _proxyMode.value = enabled
+        syncPaused()
     }
 
     companion object {
@@ -219,8 +329,11 @@ class UserSettings(
         val AUTO_REFRESH_OPTIONS = listOf(ON_OPEN, 5, 10, 15, 30, 60)
         const val DEFAULT_AUTO_REFRESH_MINUTES = ON_OPEN
 
-        /** 预测返回默认的最大横移距离（屏幕宽度的百分比）。 */
-        const val DEFAULT_PREDICTIVE_BACK_TRANSLATION = 75
+        /**
+         * 预测返回默认的最大横移距离（屏幕宽度的百分比）。语义 = 「页面跟手比例」，
+         * 理由见 [com.nzd.antigravitypanel.ui.component.DEFAULT_PREDICTIVE_BACK_TRANSLATION_PERCENT]。
+         */
+        const val DEFAULT_PREDICTIVE_BACK_TRANSLATION = 40
 
         /** 小程序签到自动签到默认**开**，理由见 [setAutoSignIn]。 */
         const val DEFAULT_AUTO_SIGN_IN = true
@@ -233,6 +346,9 @@ class UserSettings(
 
         /** 心悦悦享卡自动领取默认**开**，理由见 [setAutoClaimXinyueGift]。 */
         const val DEFAULT_AUTO_CLAIM_XINYUE_GIFT = true
+
+        /** 超核组队活动自动签到 / 领奖 / 抽奖默认**开**，理由见 [setAutoSupercore]。 */
+        const val DEFAULT_AUTO_SUPERCORE = true
 
         /** 「概览页顶栏显示账号信息」默认开，理由见 [setTopBarAccount]。 */
         const val DEFAULT_TOP_BAR_ACCOUNT = true

@@ -24,10 +24,22 @@ android {
         minSdk = 33
         targetSdk = 36
         // ⚠️ 版本号不是"本地累加"：在 GitHub 上还没有更新的 release 之前，
-        // 这里只能是**已发布的最新版 + 1**（当前线上是 v0.2.2 → 这里是 0.2.3）。
+        // 这里只能是**已发布的最新版 + 1**（当前线上是 v0.2.3 → 这里是 0.2.4）。
         // 每发一个 release 就把两边一起 +1，别在本地连跳两级。
-        versionCode = 5
-        versionName = "0.2.3"
+        //
+        // ⚠️ 同一个 versionName 下要重新出一包时，**只推 versionCode**，别动 versionName：
+        // 名字只跟着线上 release 走，改它就是提前透支下一个版本号。
+        // 0.2.4 已经出过这些本地包：code 6（wiki）、7（顶栏账号 + HAR 导入）、
+        // 8（积分显示单位 / 近五场新统计）、9（超核首版）、10（超核弹层 UI）、
+        // 11（扫码页底栏间距 + TabRow）、12（扫码页两颗胶囊 + 反重力登录出码页）、
+        // 13（胶囊图标 / 半宽折行 + 账号胶囊的下滑玻璃）、14–16（扫码/登录相关收尾）、
+        // 17（超核：确认成团前置检查）、18（超核：user_attach + 网络繁忙重试 + 清陈旧文案）、
+        // 19（超核：修 RoleSrv 解析导致的空角色 + 今日签到推断）、
+        // 20（签到卡四态图标 + 设置 / 关于 / 概览顶栏换 Material 图标）、
+        // 21（Build 计划：补上 3 把武器缺失的缩略图）、
+        // 22（超核：领奖记录改用官方接口、去掉活动网址手动输入）。
+        versionCode = 22
+        versionName = "0.2.4"
     }
     // 发布签名：凭据放 keystore.properties（和 *.jks 一样在 .gitignore 里）。
     // **文件不存在就退化成不签名**，而不是让构建直接失败——别人 clone 下来跑
@@ -109,6 +121,8 @@ androidComponents {
             listOf(
                 "lib/x86/libsqliteJni.so",
                 "lib/x86_64/libsqliteJni.so",
+                "lib/x86/libgojni.so",
+                "lib/x86_64/libgojni.so",
             ),
         )
     }

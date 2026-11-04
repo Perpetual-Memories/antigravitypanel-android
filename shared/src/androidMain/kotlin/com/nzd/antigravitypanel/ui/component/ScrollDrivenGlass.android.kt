@@ -36,6 +36,7 @@ private const val SHADOW_ALPHA_GAIN = 3.2f
 internal actual fun Modifier.glassDropShadow(
     glassAlpha: Float,
     darkTheme: Boolean,
+    capsule: Boolean,
 ): Modifier = drawBehind {
     // 下面这一段是 NexioSchedule `LiquidTopBarButton` 的 drawBehind 的逐行搬运
     // （spread ↔ glassAlpha），别再动数值：都是参考实现的原值。
@@ -45,12 +46,37 @@ internal actual fun Modifier.glassDropShadow(
         val maxShadowSpread = 2f * density
         val blurRadius = maxBlurRadius * spread
         val shadowSpread = maxShadowSpread * spread
-        val outerRadius = size.minDimension / 2f + shadowSpread
-        val innerRadius = size.minDimension / 2f
         val path = Path().apply {
-            // 内圆反向绕 → 挖空圆内：阴影不会从半透明的玻璃底下透出来
-            addCircle(center.x, center.y, outerRadius, Path.Direction.CW)
-            addCircle(center.x, center.y, innerRadius, Path.Direction.CCW)
+            // 内圈反向绕 → 挖空内部：阴影不会从半透明的玻璃底下透出来
+            if (capsule) {
+                // 横向胶囊：半径取**高度**的一半，外圈按 spread 外扩。
+                // 半径不能取 minDimension/2 再当圆用 —— 那样只在正中间画一个小圆环。
+                val innerRadius = size.height / 2f
+                val outerRadius = innerRadius + shadowSpread
+                addRoundRect(
+                    -shadowSpread,
+                    -shadowSpread,
+                    size.width + shadowSpread,
+                    size.height + shadowSpread,
+                    outerRadius,
+                    outerRadius,
+                    Path.Direction.CW,
+                )
+                addRoundRect(
+                    0f,
+                    0f,
+                    size.width,
+                    size.height,
+                    innerRadius,
+                    innerRadius,
+                    Path.Direction.CCW,
+                )
+            } else {
+                val outerRadius = size.minDimension / 2f + shadowSpread
+                val innerRadius = size.minDimension / 2f
+                addCircle(center.x, center.y, outerRadius, Path.Direction.CW)
+                addCircle(center.x, center.y, innerRadius, Path.Direction.CCW)
+            }
         }
         val shadowColor = if (darkTheme) SHADOW_BASE_ALPHA_DARK else SHADOW_BASE_ALPHA_LIGHT
         val paint = Paint().apply {

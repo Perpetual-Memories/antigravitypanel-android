@@ -83,6 +83,8 @@ private val PERMISSION_BUTTON_WIDTH = 180.dp
 actual fun QrScannerScreen(
     onScanned: (String) -> Unit,
     onDismiss: () -> Unit,
+    onShowYybQr: () -> Unit,
+    onShowShareQr: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -204,6 +206,20 @@ actual fun QrScannerScreen(
                     fontSize = 13.sp,
                 )
             }
+
+            // 左下角两颗胶囊。底部留 70dp 是为了**让开下面那行提示**：
+            // 提示说的是"对准哪张码"，被按钮压住一半就等于没写。
+            // 宽度钉死在屏幕的一半（`fillMaxWidth(0.5f)` 在 padding 之前，含左边 16dp 留白），
+            // 再长就让文字折行 —— 胶囊横到屏幕边上会把右下角的画面全挡了。
+            ScannerActionCapsules(
+                onShowYybQr = onShowYybQr,
+                onShowShareQr = onShowShareQr,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .fillMaxWidth(0.5f)
+                    .padding(start = 16.dp, bottom = 70.dp),
+            )
         } else {
             // 没权限也别白屏：给一句原因和一个再试一次的入口。
             // 用户可能是在系统弹窗里误点了拒绝，这时候除了回设置别无他法，

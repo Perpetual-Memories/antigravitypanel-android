@@ -17,9 +17,15 @@ import androidx.compose.runtime.Composable
  * @param onScanned 扫到内容。同一段内容只回调一次（回调后自动停扫，
  *   否则相机会对着同一个码一秒回调几十次）。
  * @param onDismiss 返回。用户按返回键 / 点左上角关闭都走这里。
+ * @param onShowYybQr 左下角「应用宝电脑版渠道」：切到微信授权二维码页。
+ * @param onShowShareQr 左下角「反重力登录」：切到出码页。
+ *   ⚠️ 这个动作由宿主负责**把扫码页收起来**再展示二维码 —— 相机不能留在底下空跑，
+ *   而且二维码页是不透明的，留着相机也只会白耗电。
  */
 @Composable
 expect fun QrScannerScreen(
     onScanned: (String) -> Unit,
     onDismiss: () -> Unit,
+    onShowYybQr: () -> Unit,
+    onShowShareQr: () -> Unit,
 )

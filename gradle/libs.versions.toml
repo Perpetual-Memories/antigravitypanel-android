@@ -18,6 +18,8 @@ miuix = "0.9.4"
 vico = "3.3.1"
 
 androidx-activity = "1.13.0"
+# WebViewCompat.addDocumentStartJavaScript：在文档创建时注入客户端标记（对齐 Tauri 的 initialization_script）
+androidx-webkit = "1.12.1"
 # cookie 是账号凭证，落盘必须加密
 androidx-security-crypto = "1.1.0"
 androidx-navigation3 = "1.1.4"
@@ -65,6 +67,7 @@ jetbrains-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecyc
 
 # ---- AndroidX（全部走 google()）----
 androidx-activity = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "androidx-webkit" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
 # NavDisplay 所在的模块。原先是搭 miuix-navigation3-ui 的车进来的，
 # 那个模块只发到 0.9.3，所以改成直接依赖 androidx 的。

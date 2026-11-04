@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -111,6 +112,14 @@ fun InfoText(
         Text(
             text = content,
             modifier = Modifier.padding(top = 2.dp),
+            // 三列网格里「12分34秒」这类值按 headline1 排会顶出格子 ⇒ 让它按需降字号。
+            // 两列的调用方永远不会触发缩字（空间够），所以不必另开一个样式。
+            autoSize = TextAutoSize.StepBased(
+                minFontSize = 13.sp,
+                maxFontSize = MiuixTheme.textStyles.headline1.fontSize,
+                stepSize = 1.sp,
+            ),
+            maxLines = 1,
             style = MiuixTheme.textStyles.headline1,
             color = MiuixTheme.colorScheme.onSurface,
         )
@@ -118,17 +127,22 @@ fun InfoText(
 }
 
 /**
- * 两列指标网格。概览的近五场统计、签到页三块的状态数字都用它。
+ * 指标网格。概览的近五场统计（三列）、签到页三块的状态数字（两列）都用它。
  *
  * 行距只加在**行与行之间**：最后一行再垫一份 bottom，卡片底部就会多出一整块空白
  * （原来每格自己还带 16dp，等于末行下面堆了 28dp），看着像"多出来一块白色区域"。
+ *
+ * @param columns 每行几格。近五场是 3 列 × 2 行，签到那边仍是 2 列。
+ *   末行不满时**必须补等宽的空白**，否则最后一格的标题会跑到中间，
+ *   上下列就对不齐了。
  */
 @Composable
 fun InfoGrid(
     items: List<Pair<String, String>>,
     modifier: Modifier = Modifier,
+    columns: Int = 2,
 ) {
-    val rows = items.chunked(2)
+    val rows = items.chunked(columns.coerceAtLeast(1))
     Column(modifier = modifier) {
         rows.forEachIndexed { index, row ->
             Row(
@@ -144,6 +158,10 @@ fun InfoGrid(
                         content = value,
                         modifier = Modifier.weight(1f),
                     )
+                }
+                // 末行缺几格补几格：补的是**相同权重**的 Spacer，不是固定的宽度
+                repeat(columns - row.size) {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }

@@ -60,8 +60,9 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
  * 骨架照「活动日历」那页：`BarBlurHost` → `Scaffold(BlurredBar + SmallTopAppBar)`
  * → `BarBackdropContent` → `PullToRefresh` → `LazyColumn`。
  *
- * 三块签到各占一组（`SmallTitle` + `Card`）：小程序活动中心签到 / QQ游戏中心周签到礼包 /
- * 悦享卡每日礼包。**三块的开关都收在各自卡片点开的弹层里**，页面上只留状态与数字。
+ * 四块签到各占一组（`SmallTitle` + `Card`）：小程序活动中心签到 / QQ游戏中心周签到礼包 /
+ * 悦享卡每日礼包 / 超核组队活动。**每一块的开关都收在各自卡片点开的弹层里**，
+ * 页面上只留状态与数字。
  *
  * 手动签到按钮放在这里而不是概览那张卡上：绝大多数情况下打开 app 那一下就自动签掉了，
  * 卡片上的按钮反而是个误导（点了也是"今天已经签到过了"）。只有自动签到因为网络
@@ -72,21 +73,25 @@ fun SignInScreen(
     viewModel: SignInViewModel,
     qqViewModel: QqGiftViewModel,
     xinyueViewModel: XinyueViewModel,
+    supercoreViewModel: SupercoreViewModel,
     autoSign: Boolean,
     autoClaimTask: Boolean,
     autoClaimQqGift: Boolean,
     autoClaimXinyueGift: Boolean,
+    autoSupercore: Boolean,
     cookie: MiniProgramCredential?,
     onBack: () -> Unit,
     onAutoSignChange: (Boolean) -> Unit,
     onAutoClaimTaskChange: (Boolean) -> Unit,
     onAutoClaimQqGiftChange: (Boolean) -> Unit,
     onAutoClaimXinyueGiftChange: (Boolean) -> Unit,
+    onAutoSupercoreChange: (Boolean) -> Unit,
     liquidGlassEnabled: Boolean = true,
 ) {
     val state by viewModel.state.collectAsState()
     val qqState by qqViewModel.state.collectAsState()
     val xinyueState by xinyueViewModel.state.collectAsState()
+    val supercoreState by supercoreViewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior()
     val pullToRefreshState = rememberPullToRefreshState()
@@ -131,7 +136,8 @@ fun SignInScreen(
                     )
                 }
                 PullToRefresh(
-                    isRefreshing = state.loading || qqState.loading || xinyueState.loading,
+                    isRefreshing = state.loading || qqState.loading || xinyueState.loading ||
+                        supercoreState.loading || supercoreState.running,
                     onRefresh = {
                         // 领取时机是明确的：**冷启动和每一次刷新都要试**。
                         // 「每日完成1局」白天才达成，下拉刷新不试的话只能杀掉 app 重开。
@@ -142,9 +148,10 @@ fun SignInScreen(
                             autoSign = autoSign,
                             autoClaimTask = autoClaimTask,
                         )
-                        // 下面两块是另两套凭证，用户没要求它们跟着下拉一起领，保持只刷状态
+                        // 下面三块是另三套凭证，用户没要求它们跟着下拉一起领，保持只刷状态
                         qqViewModel.refresh(autoClaim = false)
                         xinyueViewModel.refresh(autoClaim = false)
+                        supercoreViewModel.refresh(autoRun = false)
                     },
                     pullToRefreshState = pullToRefreshState,
                     topAppBarScrollBehavior = scrollBehavior,
@@ -247,6 +254,32 @@ fun SignInScreen(
                                     scope.launch { xinyueViewModel.importFromHar(text) }
                                 },
                                 onConsumeNotice = xinyueViewModel::consumeNotice,
+                            )
+                        }
+
+                        item {
+                            SupercoreSection(
+                                state = supercoreState,
+                                autoRun = autoSupercore,
+                                onRunNow = supercoreViewModel::runNow,
+                                onSaveCredential = { raw ->
+                                    scope.launch { supercoreViewModel.saveCredential(raw) }
+                                },
+                                onImportHar = { text ->
+                                    scope.launch { supercoreViewModel.importFromHar(text) }
+                                },
+                                onClearCredential = {
+                                    scope.launch { supercoreViewModel.clearCredential() }
+                                },
+                                onSelectRole = { key ->
+                                    scope.launch { supercoreViewModel.selectRole(key) }
+                                },
+                                onAutoRunChange = {
+                                    scope.launch { onAutoSupercoreChange(it) }
+                                },
+                                onConfirmTeam = supercoreViewModel::confirmTeam,
+                                onLoadRecords = supercoreViewModel::loadRecords,
+                                onConsumeNotice = supercoreViewModel::consumeNotice,
                             )
                         }
 

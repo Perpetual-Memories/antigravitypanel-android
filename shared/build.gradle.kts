@@ -86,6 +86,10 @@ kotlin {
                 implementation(libs.androidx.camera.lifecycle)
                 implementation(libs.androidx.camera.view)
                 implementation(libs.zxing.core)
+                // wiki 的客户端标记要在文档创建时注入（对齐桌面端的 initialization_script）
+                implementation(libs.androidx.webkit)
+                // GoMobile 生成的应用宝微信协议库；源码在根目录 yyb-mobile。
+                implementation(files("libs/yyb-mobile.aar"))
             }
         }
 

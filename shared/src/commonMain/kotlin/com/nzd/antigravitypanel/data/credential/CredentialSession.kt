@@ -27,6 +27,16 @@ class CredentialSession(
     /** 从存储恢复。重复调用无副作用（进程重建后 UI 会再走一次）。 */
     suspend fun restore() {
         if (_ready.value) return
+        reload()
+    }
+
+    /**
+     * 无视"已经读过"的守卫，**重新**从存储读一次。
+     *
+     * 只给「导入数据」用：那一刻存储里的 cookie 已经被数据包换掉了，而 [restore]
+     * 上的守卫是为了冷启动只读一次 —— 不绕过它的话，新 cookie 要等杀进程重开才生效。
+     */
+    suspend fun reload() {
         val raw = store.read(StoreKey.COOKIE_RAW)
         // 老数据在当前解析规则下可能解析失败，失败就当没有凭证，让用户重新填
         _cookie.value = raw?.let { runCatching { parseNzCookie(it) }.getOrNull() }

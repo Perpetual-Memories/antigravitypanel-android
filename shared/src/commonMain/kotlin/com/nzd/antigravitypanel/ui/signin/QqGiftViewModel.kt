@@ -112,6 +112,21 @@ class QqGiftViewModel(
     }
 
     /**
+     * 只重读凭证（不发请求）。
+     *
+     * 给「导入数据」用：[restore] 在"缓存和凭证都已就位"时会直接返回，
+     * 而导入之后存储里的凭证已经换了 —— 不重读的话卡片还挂着上一个号的绑定状态，
+     * 直到下一次刷新（刷新要发网络请求，离线迁移时根本发不出去）。
+     */
+    suspend fun reloadCredential() {
+        val credential = repository.readCredential()
+        _state.value = _state.value.copy(
+            bound = credential != null,
+            credentialRaw = credential?.raw.orEmpty(),
+        )
+    }
+
+    /**
      * 拉状态。开了自动领取就顺手领——但要先看去重标记，同一天只试一次。
      *
      * 没绑凭证时什么都不做（也不报错）：这块是实验性功能，不该在没配置的时候刷存在感。

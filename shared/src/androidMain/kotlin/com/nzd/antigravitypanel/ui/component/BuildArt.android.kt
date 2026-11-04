@@ -40,6 +40,7 @@ actual fun buildWeaponPainter(name: String): Painter? {
         "密林杀机" -> R.drawable.weapon_040
         "封刃" -> R.drawable.weapon_042
         "尸龙战斧" -> R.drawable.weapon_045
+        "层流冷焰" -> R.drawable.build_weapon_014
         "幽冥毒王" -> R.drawable.weapon_049
         "幽冥毒皇" -> R.drawable.weapon_051
         "往日速递" -> R.drawable.weapon_052
@@ -59,6 +60,8 @@ actual fun buildWeaponPainter(name: String): Painter? {
         "未名之刃" -> R.drawable.build_weapon_006
         "杜瓦瓶" -> R.drawable.weapon_084
         "杰斯拳套" -> R.drawable.build_weapon_007
+        "极地夜曲" -> R.drawable.build_weapon_015
+        "极寒冰神" -> R.drawable.build_weapon_016
         "梦魇" -> R.drawable.weapon_085
         "棒球棍" -> R.drawable.weapon_086
         "樱之殇" -> R.drawable.weapon_087

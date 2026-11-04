@@ -27,6 +27,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,11 +50,16 @@ import androidx.savedstate.serialization.SavedStateConfiguration
 import com.nzd.antigravitypanel.data.config.ConfigRepository
 import com.nzd.antigravitypanel.data.config.GameConfigRepository
 import com.nzd.antigravitypanel.data.config.RemoteConfig
+import com.nzd.antigravitypanel.data.backup.BackupExporter
+import com.nzd.antigravitypanel.data.backup.BackupImporter
+import com.nzd.antigravitypanel.data.backup.BackupImportResult
+import com.nzd.antigravitypanel.data.backup.looksLikeZip
 import com.nzd.antigravitypanel.data.credential.CredentialSession
 import com.nzd.antigravitypanel.data.build.BuildPlan
 import com.nzd.antigravitypanel.data.build.BuildPlanStore
 import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.credential.partitionLabelOf
+import com.nzd.antigravitypanel.data.credential.scanMiniProgramCookie
 import com.nzd.antigravitypanel.data.db.DatabaseProvider
 import com.nzd.antigravitypanel.data.imports.JsonImportState
 import com.nzd.antigravitypanel.data.export.MatchExportFormat
@@ -61,11 +67,15 @@ import com.nzd.antigravitypanel.data.export.MatchExporter
 import com.nzd.antigravitypanel.data.imports.JsonMatchImporter
 import com.nzd.antigravitypanel.data.qrlogin.QrLoginPayload
 import com.nzd.antigravitypanel.data.qrlogin.parseQrLoginPayload
+import com.nzd.antigravitypanel.data.yyb.GameCodeExchange
+import com.nzd.antigravitypanel.data.yyb.YybLoginRepository
+import com.nzd.antigravitypanel.data.yyb.createYybLoginEngine
 import com.nzd.antigravitypanel.data.repo.MatchBossStats
 import com.nzd.antigravitypanel.data.repo.MatchRepository
 import com.nzd.antigravitypanel.data.repo.OverviewRepository
 import com.nzd.antigravitypanel.data.settings.MapSeasonFilter
 import com.nzd.antigravitypanel.data.settings.MatchMarks
+import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
 import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.data.store.StoreKey
 import com.nzd.antigravitypanel.data.store.createKeyValueStore
@@ -73,6 +83,9 @@ import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.ui.about.AboutScreen
 import com.nzd.antigravitypanel.ui.activity.ActivityListScreen
 import com.nzd.antigravitypanel.ui.build.BuildPlanScreen
+import com.nzd.antigravitypanel.ui.wiki.AutoStoriesIcon
+import com.nzd.antigravitypanel.ui.wiki.WikiBackBridge
+import com.nzd.antigravitypanel.ui.wiki.WikiScreen
 import com.nzd.antigravitypanel.ui.component.BarBackdropContent
 import com.nzd.antigravitypanel.ui.component.BarBlurHost
 import com.nzd.antigravitypanel.ui.component.BlurredBar
@@ -81,6 +94,7 @@ import com.nzd.antigravitypanel.ui.component.LocalBarBlurBackdrop
 import com.nzd.antigravitypanel.ui.component.LocalBarBlurEnabled
 import com.nzd.antigravitypanel.ui.component.LocalRootBottomBarPadding
 import com.nzd.antigravitypanel.ui.component.LocalTopBarGlassProgress
+import com.nzd.antigravitypanel.ui.component.MaterialGlyphs
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackHandler
 import com.nzd.antigravitypanel.ui.component.PredictiveNavBackdrop
 import com.nzd.antigravitypanel.ui.component.PredictiveNavLayer
@@ -93,9 +107,11 @@ import com.nzd.antigravitypanel.ui.component.TopBarGlassAnchor
 import com.nzd.antigravitypanel.ui.component.TopBarGlassChip
 import com.nzd.antigravitypanel.ui.component.TopBarGlassPlaceholder
 import com.nzd.antigravitypanel.ui.component.firstWinChestPainter
+import com.nzd.antigravitypanel.ui.component.appVersionName
 import com.nzd.antigravitypanel.ui.component.liquid.IosLiquidGlassNavigationBar
-import com.nzd.antigravitypanel.ui.component.rememberTextFilePicker
+import com.nzd.antigravitypanel.ui.component.rememberBinaryFilePicker
 import com.nzd.antigravitypanel.ui.component.rememberTextFileSaver
+import com.nzd.antigravitypanel.ui.component.rememberZipFileSaver
 import com.nzd.antigravitypanel.ui.component.rememberTopBarGlassProgress
 import com.nzd.antigravitypanel.ui.detail.MatchDetailScreen
 import com.nzd.antigravitypanel.ui.detail.MatchDetailViewModel
@@ -114,10 +130,13 @@ import com.nzd.antigravitypanel.ui.overview.CookieGuideDialog
 import com.nzd.antigravitypanel.ui.overview.OverviewScreen
 import com.nzd.antigravitypanel.ui.overview.OverviewViewModel
 import com.nzd.antigravitypanel.ui.qrlogin.QrScannerScreen
+import com.nzd.antigravitypanel.ui.qrlogin.QrShareScreen
+import com.nzd.antigravitypanel.ui.qrlogin.YybQrLoginScreen
 import com.nzd.antigravitypanel.ui.settings.SettingsScreen
 import com.nzd.antigravitypanel.ui.settings.SettingsUiState
 import com.nzd.antigravitypanel.ui.settings.ThemeSettingsScreen
 import com.nzd.antigravitypanel.ui.signin.QqGiftViewModel
+import com.nzd.antigravitypanel.ui.signin.SupercoreViewModel
 import com.nzd.antigravitypanel.ui.signin.XinyueViewModel
 import com.nzd.antigravitypanel.ui.signin.SignInScreen
 import com.nzd.antigravitypanel.ui.signin.SignInViewModel
@@ -125,9 +144,11 @@ import com.nzd.antigravitypanel.ui.format.formatCountdownClock
 import com.nzd.antigravitypanel.ui.theme.ColorMode
 import com.nzd.antigravitypanel.util.currentEpochSeconds
 import com.nzd.antigravitypanel.util.secondsUntilNextServerDayAt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
@@ -142,6 +163,9 @@ import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.Snackbar
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -153,7 +177,6 @@ import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.MapAlbum
 import top.yukonga.miuix.kmp.icon.extended.Refresh
 import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.icon.extended.TopDownloads
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -170,6 +193,20 @@ private object Tabs {
     /** 概览页顶栏显示应用名而不是"概览"，与 HyperIsland 的首页一致。 */
     const val APP_NAME = "反重力数据面板"
 }
+
+/**
+ * 只有「停在目标页」或「二级页盖住底栏」时才不发起滚动。
+ *
+ * 不能用 settledPage 去重：跨页动画中它与 currentPage 可能不同，快速点回上一稳定页时
+ * 会把必要的反向滚动过滤掉；动画中点击 currentPage 也必须受理，才能取消原目标并停在所点页。
+ */
+internal fun shouldRequestTabScroll(
+    detailVisible: Boolean,
+    targetIndex: Int,
+    currentPage: Int,
+    currentPageOffsetFraction: Float,
+): Boolean = !detailVisible &&
+    (targetIndex != currentPage || currentPageOffsetFraction != 0f)
 
 /**
  * 给液态底栏**外投影**在上方留出的空间。
@@ -208,6 +245,14 @@ private enum class AppDetail {
 
     /** Build 计划：新赛季开始后统计"我要给哪把枪刷哪四个插件"。 */
     BUILD_PLAN,
+
+    /**
+     * wiki 浏览器：一整屏网页 + 顶部悬浮玻璃按钮条。
+     *
+     * 走二级页而不是外部浏览器，是为了让返回手势能把网页带着跟手位移回去；
+     * 也因为它要跟「代理模式」那个开关配套 —— 用户得能在 App 内就把官方同步掐掉。
+     */
+    WIKI,
 }
 
 /**
@@ -218,6 +263,25 @@ private enum class AppDetail {
  */
 private class ExportSummary {
     var text: String = ""
+}
+
+/**
+ * 数据包导入结果的那句话。
+ *
+ * 逐项报数而不是只说"导入成功"：用户要能一眼看出**凭证到底搬过来没有** ——
+ * 那才是换机时最怕丢的东西。为 0 的项不显示，免得一行里挤五个 0。
+ */
+private fun backupResultText(result: BackupImportResult): String = buildString {
+    append("导入完成：")
+    append("${result.matchCount} 场对局")
+    if (result.detailCount > 0) append("（其中 ${result.detailCount} 场带详情）")
+    append("、${result.credentialCount} 项凭证")
+    append("、${result.settingCount} 项设置")
+    if (result.configCount > 0) append("、${result.configCount} 张配置表")
+    append("。")
+    if (result.credentialCount > 0) {
+        append("已用包里的凭证重新同步，没有网络时也能先看到战绩。")
+    }
 }
 
 @Composable
@@ -239,6 +303,16 @@ fun AppContent(
     val configRepository = remember { GameConfigRepository(api, database.configCacheDao()) }
     val importState = remember { JsonImportState(store) }
     val importer = remember { JsonMatchImporter(database.matchDao()) }
+    // 「导入数据」读的是本应用导出的 zip。和 importer 并存：老的 nzm_matches.json
+    // 仍然能从同一个入口进来（见 pickBackupFile 里的分支）。
+    val backupImporter = remember {
+        BackupImporter(
+            store,
+            database.matchDao(),
+            database.matchBossStatDao(),
+            database.configCacheDao(),
+        )
+    }
     // 各项持久化恢复完成的标志。首刷必须等它：否则概览可能抢在 importState.restore()
     // 之前跑完，导入过 JSON 也会先显示成「未输入」。
     var restored by remember { mutableStateOf(false) }
@@ -296,6 +370,25 @@ fun AppContent(
     val xinyueViewModel = remember {
         XinyueViewModel(store, cachedSeed = xinyueSeed, credentialSeed = xinyueCredentialSeed)
     }
+    // 超核组队活动：第四套凭证（活动页的 T-OPENID / T-ACCESS-TOKEN / T-APPID）。
+    // 和心悦那对 header 长得一样但不能通用 —— appid 不同，服务端会校验。
+    val supercoreSeed = remember {
+        runCatching { store.peek(StoreKey.SUPERCORE_CACHE) }.getOrNull()
+    }
+    val supercoreCredentialSeed = remember {
+        runCatching { store.peek(StoreKey.SUPERCORE_CREDENTIAL_RAW) }.getOrNull()
+    }
+    val supercoreUrlSeed = remember {
+        runCatching { store.peek(StoreKey.SUPERCORE_ACTIVITY_URL) }.getOrNull()
+    }
+    val supercoreViewModel = remember {
+        SupercoreViewModel(
+            store,
+            cachedSeed = supercoreSeed,
+            credentialSeed = supercoreCredentialSeed,
+            urlSeed = supercoreUrlSeed,
+        )
+    }
     DisposableEffect(Unit) {
         onDispose {
             homeViewModel.close()
@@ -305,6 +398,7 @@ fun AppContent(
             signInViewModel.close()
             qqGiftViewModel.close()
             xinyueViewModel.close()
+            supercoreViewModel.close()
         }
     }
 
@@ -322,6 +416,7 @@ fun AppContent(
         mapViewModel.restoreCached()
         qqGiftViewModel.restore()
         xinyueViewModel.restore()
+        supercoreViewModel.restore()
         restored = true
         val config = runCatching { ConfigRepository().refresh() }.getOrDefault(RemoteConfig())
         repository.updateConfig(config)
@@ -339,8 +434,18 @@ fun AppContent(
     val autoClaimWelfareTask by settings.autoClaimWelfareTask.collectAsState()
     val autoClaimQqGift by settings.autoClaimQqGift.collectAsState()
     val autoClaimXinyueGift by settings.autoClaimXinyueGift.collectAsState()
+    val autoSupercore by settings.autoSupercore.collectAsState()
     val topBarAccountEnabled by settings.topBarAccount.collectAsState()
     val compositeScoreEnabled by settings.compositeScore.collectAsState()
+    val scoreWanTargets by settings.scoreWanTargets.collectAsState()
+    // 「代理模式」：开着的时候所有官方请求全部掐断（读战绩 + 四块签到/领取）。
+    // 由 UserSettings 统一算（开关状态 ∪ 本次冷启动被保护的那一轮），
+    // 这里只订阅，别自己在 AppContent 里拼条件 —— 拼了就会漏掉某一路。
+    val officialPaused by settings.officialNetworkPaused.collectAsState()
+    // ⚠️ 开关的**显示值**另读一份：它是纯内存态，重启后必然是关。
+    // 别拿 officialPaused 当开关状态显示 —— 冷启动被保护的那一轮它也 true，
+    // 但那时候 UI 上必须显示"关"，否则用户会以为开关没生效。
+    val proxyModeEnabled by settings.proxyMode.collectAsState()
     val gameConfig by configRepository.config.collectAsState()
     val pinned by marks.pinned.collectAsState()
     val favorite by marks.favorite.collectAsState()
@@ -356,6 +461,14 @@ fun AppContent(
      * 而扫码页必须盖在它上面全屏展开。
      */
     var scannerShown by remember { mutableStateOf(false) }
+    /**
+     * 「反重力登录」出码页。同样是 app 级浮层，而且必须排在扫码页**之后**渲染：
+     * 它是从扫码页左下角进来的，退出时回扫码页，所以两者不能同时可见 ——
+     * 打开时把 [scannerShown] 关掉，相机随之解绑（不透明页面底下留着相机只是白耗电）。
+     */
+    var qrShareShown by remember { mutableStateOf(false) }
+    /** 应用宝渠道：本机出示微信授权二维码；与相机页互斥，避免相机空跑。 */
+    var yybQrShown by remember { mutableStateOf(false) }
     /** 扫码扫到 Cookie，先摆在这儿等用户点头——扫错码直接顶掉当前账号的代价太大。 */
     var scanPending by remember { mutableStateOf<QrLoginPayload.CookieText?>(null) }
     /** 扫出来的东西用不了时的提示（不是登录码 / 是暂不支持的地址）。 */
@@ -372,8 +485,21 @@ fun AppContent(
      * 不然后回调里读 State 有可能拿到发起导出前那一帧的旧值。
      */
     val exportSummary = remember { ExportSummary() }
+    /** 数据包的摘要，理由同上。 */
+    val backupSummary = remember { ExportSummary() }
     val scope = rememberCoroutineScope()
-
+    val yybLogin = remember {
+        YybLoginRepository(
+            engineFactory = ::createYybLoginEngine,
+            exchange = GameCodeExchange(),
+            configProvider = { repository.currentConfig() },
+            scope = scope,
+        )
+    }
+    val yybState by yybLogin.state.collectAsState()
+    DisposableEffect(yybLogin) {
+        onDispose { yybLogin.close() }
+    }
     // ---- 二级详情页（HyperIsland 式图层）----
     // 「哪个页」和「是否可见」分开存：退出动画跑的那一瞬间页面还在画，
     // 立刻把 visibleDetail 清成 null 会让内容在动画结束前闪没。
@@ -383,11 +509,28 @@ fun AppContent(
     var detailShown by remember { mutableStateOf(false) }
     val detailNavState = rememberPredictiveNavLayerState()
 
+    /**
+     * wiki 那一页递过来的「网页后退」能力。系统返回键 / 返回手势要靠它做到
+     * 和左上角倒退按钮等价 —— 见 [WikiBackBridge]。
+     */
+    val wikiBack = remember { WikiBackBridge() }
+    /**
+     * 上一次「想在网页首页退出 wiki」的时刻（epoch 秒）。0 = 没有待确认的那一次。
+     *
+     * ⚠️ 走 [currentEpochSeconds] 而不是系统时钟：单测要能固定时间。
+     */
+    var wikiExitPromptSec by remember { mutableLongStateOf(0L) }
+    /** 二级页那层之上唯一的 Snackbar 宿主（wiki 的「再按一次退出」用）。 */
+    val detailSnackbarHost = remember { SnackbarHostState() }
+
     fun openDetail(detail: AppDetail) {
         // 两个 state 互斥：不清掉另一个，"上一个页面"会一直优先渲染出来
         visibleMatch = null
         visibleDetail = detail
         detailShown = true
+        // 「再按一次退出」那一次确认不跨开关页：上一轮留着的时间戳会让刚打开的
+        // wiki 第一次按返回就直接退出（提示压根没出现过）
+        wikiExitPromptSec = 0L
     }
 
     fun openMatch(roomId: String) {
@@ -402,6 +545,37 @@ fun AppContent(
     }
 
     /**
+     * wiki 页上「返回」的统一入口（顶栏倒退按钮、系统返回键、返回手势都走这里）。
+     *
+     * 三条路必须**完全等价**，所以顺序照搬 [WikiScreen] 里那颗倒退按钮：
+     * 1. 网页里还有历史 → **网页自己退一页**，这一页不关；
+     * 2. 已经在网页首页 → 直接回概览页太突然（手势很容易误触），先弹一句提示，
+     *    [WIKI_EXIT_PROMPT_WINDOW_SEC] 秒内再来一次才真退，同时把提示收掉。
+     *
+     * @return true = 这次没有退出这一页（调用方据此把这次返回吞掉）
+     */
+    fun confirmWikiExit(): Boolean {
+        if (wikiBack.canGoBack) {
+            // 顺手把上一轮"再按一次"的确认作废：那句话是针对"当时在首页"说的，
+            // 中间网页又翻过页的话，留着它就会让回到首页的那一次直接退出、不再提示
+            wikiExitPromptSec = 0L
+            wikiBack.goBack()
+            return true
+        }
+        val now = currentEpochSeconds()
+        if (wikiExitPromptSec != 0L && now - wikiExitPromptSec < WIKI_EXIT_PROMPT_WINDOW_SEC) {
+            wikiExitPromptSec = 0L
+            // 真退之前先把提示撤掉，别让它跟着飘到概览页上
+            scope.launch { detailSnackbarHost.newestSnackbarData()?.dismiss() }
+            closeDetail()
+            return false
+        }
+        wikiExitPromptSec = now
+        scope.launch { detailSnackbarHost.showSnackbar(WIKI_EXIT_PROMPT) }
+        return true
+    }
+
+    /**
      * 拉一轮全部数据。**冷启动那条 LaunchedEffect 和手动刷新都必须走这里**——
      * 之前两边各写一份，手动刷新那份少了 `updateCookie` 和游戏配置表，
      * 于是"点了刷新看着转了圈，地图分布还是旧的、凭证还是上一次的结论"。
@@ -411,6 +585,10 @@ fun AppContent(
      * 手动刷新由 [signInAttempt] 把那个 effect 重新触发一遍（见它的注释）。
      */
     fun refreshAll(active: MiniProgramCredential?) {
+        // 代理模式：一个官方请求都不发。直接 return，不去动 cookieStatus ——
+        // 动了会把状态卡从「已识别」打回「校验中」，反而像数据丢了。
+        // 概览 / 地图分布这时候显示的是落盘缓存里那一份。
+        if (officialPaused) return
         if (active == null) {
             // 没凭证时也要刷一次概览：导入过 JSON 的话，状态卡要显示「已导入json」
             overviewViewModel.refresh(null)
@@ -457,8 +635,19 @@ fun AppContent(
     // 已经领过的任务服务端那边 `isawarded` 已经是 true，压根不会进领取请求。
     //
     // 冷启动 / 新登录 / 点刷新，三种时机都走这里，所以 refreshAll 里不再碰签到。
-    LaunchedEffect(restored, ready, cookie, autoSignIn, autoClaimWelfareTask, signInAttempt) {
+    LaunchedEffect(
+        restored,
+        ready,
+        cookie,
+        autoSignIn,
+        autoClaimWelfareTask,
+        officialPaused,
+        signInAttempt,
+    ) {
         if (!restored) return@LaunchedEffect
+        // 代理模式下连「只读地查一下签到状态」都不发 —— 挂代理期间任何
+        // 带凭证的官方请求都该由用户显式触发。
+        if (officialPaused) return@LaunchedEffect
         signInViewModel.refresh(
             cookie = cookie,
             autoSign = autoSignIn,
@@ -470,17 +659,27 @@ fun AppContent(
     // 和小程序那套没关系，不该被"小程序 cookie 变了"重新触发一遍。
     // 开关本身也进 key —— 用户刚打开时应该立刻试一次，不用等下次冷启动。
     // 同一天重复跑不会有副作用：仓库内部按「日期|uin」去重。
-    LaunchedEffect(restored, autoClaimQqGift) {
+    LaunchedEffect(restored, autoClaimQqGift, officialPaused) {
         if (!restored) return@LaunchedEffect
+        if (officialPaused) return@LaunchedEffect
         qqGiftViewModel.refresh(autoClaim = autoClaimQqGift)
     }
 
     // 悦享卡的自动领取。同理独立于 cookie 那个 effect：它看的是心悦凭证。
     // 开关进 key 是为了用户刚打开时立刻试一次，不用等下次冷启动。
     // 同一天重复跑不会有副作用：仓库内部按「日期|openid」去重。
-    LaunchedEffect(restored, autoClaimXinyueGift) {
+    LaunchedEffect(restored, autoClaimXinyueGift, officialPaused) {
         if (!restored) return@LaunchedEffect
+        if (officialPaused) return@LaunchedEffect
         xinyueViewModel.refresh(autoClaim = autoClaimXinyueGift)
+    }
+
+    // 超核组队活动。同理独立：第四套凭证，和 cookie 无关。
+    // [signInAttempt] 也进 key —— 顶栏那颗刷新按钮要能重新领一次积分（白天打完一局才到账）。
+    LaunchedEffect(restored, autoSupercore, officialPaused, signInAttempt) {
+        if (!restored) return@LaunchedEffect
+        if (officialPaused) return@LaunchedEffect
+        supercoreViewModel.refresh(autoRun = autoSupercore)
     }
 
     LaunchedEffect(restored, ready, cookie) {
@@ -497,22 +696,81 @@ fun AppContent(
         }
     }
 
-    // 实验性功能：选一个 nzm_matches.json 写进本地库。
-    // 导入完立刻重刷概览，让凭证卡从「未输入」变「已导入json」。
-    val pickJsonFile = rememberTextFilePicker { content ->
-        if (content == null) return@rememberTextFilePicker
+    // 「导入数据」：优先当数据包（zip）处理，不是 zip 再按早期的对局 JSON 处理。
+    // 两条路分开是因为写入语义不同：
+    // - zip 是整机迁移，除对局外还要恢复凭证 / 设置 / 缓存；
+    // - 早期 JSON 只有对局，恢复完重刷一次概览，让凭证卡从「未输入」变「已导入json」。
+    val pickBackupFile = rememberBinaryFilePicker { bytes ->
+        if (bytes == null) return@rememberBinaryFilePicker
         scope.launch {
-            importMessage = runCatching { importer.import(content) }.fold(
-                onSuccess = { result ->
-                    importState.mark("已导入 ${result.upserted} 场")
-                    overviewViewModel.refresh(cookie)
-                    "导入完成：解析 ${result.parsed} 条，去重后 ${result.upserted} 场写入本地库"
-                },
-                onFailure = { e ->
-                    "导入失败：${e.message ?: "文件读不出来或对不上格式"}"
-                },
-            )
+            if (looksLikeZip(bytes)) {
+                // 导入前先记住这台机器原本有没有凭证：下面的"补读冷启动缓存"只在
+                // **空机迁移**时才做 —— 已经有数据的机器上再拿老缓存去覆盖，
+                // 会把本次刚同步到的数字换成上一台设备的旧数字（要等下次刷新才纠正）。
+                val hadCookie = cookie != null
+                importMessage = runCatching { backupImporter.import(bytes) }.fold(
+                    onSuccess = { result ->
+                        // 存储刚被整包换过，内存里这几份 StateFlow 还是旧值，必须逐个重读。
+                        // ⚠️ 顺序有讲究：先 cookie —— 它一变，下面那个观察 cookie 的 effect
+                        // 会自动发起一次同步（在线时等于"导入后立刻校验"）；再是设置 / 标记 / 缓存。
+                        session.reload()
+                        // ⚠️ Settings.restore() 会"消费"代理模式那个一次性标记
+                        // （读出来就删）。导入不该顺手把用户刚开的代理保护取消掉，
+                        // 所以原有的开关状态要在恢复之后再写回去一次。
+                        val proxyWasOn = settings.proxyMode.value
+                        settings.restore()
+                        if (proxyWasOn) settings.setProxyMode(true)
+                        marks.restore()
+                        importState.restore()
+                        buildPlanStore.restore()
+                        // 这两块有"缓存齐了就直接返回"的守卫，restore() 不会读到新凭证，
+                        // 所以单独给了只重读凭证的入口
+                        qqGiftViewModel.reloadCredential()
+                        xinyueViewModel.reloadCredential()
+                        // 超核的 restore 每次都整份重读，不用额外开门
+                        supercoreViewModel.restore()
+                        // 冷启动缓存：新机上 constructor 那一路本来是空的，
+                        // 这里补读一次，离线也能先把数字摆出来（不是覆盖已有数据）
+                        if (!hadCookie) {
+                            overviewViewModel.restoreCached()
+                            signInViewModel.restoreCached()
+                            mapViewModel.restoreCached()
+                        }
+                        backupResultText(result)
+                    },
+                    onFailure = { e ->
+                        "导入失败：${e.message ?: "数据包读不出来或格式对不上"}"
+                    },
+                )
+            } else {
+                // 老格式：UTF-8 文本，去掉 BOM 再交给原来的对局导入器
+                val text = bytes.decodeToString().removePrefix("\uFEFF")
+                importMessage = runCatching { importer.import(text) }.fold(
+                    onSuccess = { result ->
+                        importState.mark("已导入 ${result.upserted} 场")
+                        overviewViewModel.refresh(cookie)
+                        "导入完成：解析 ${result.parsed} 条，去重后 ${result.upserted} 场写入本地库"
+                    },
+                    onFailure = { e ->
+                        "导入失败：${e.message ?: "文件读不出来或对不上格式"}"
+                    },
+                )
+            }
         }
+    }
+
+    // 「导出数据」：凭证 + 战绩（含详情）+ 地图分布 / 签到缓存 + 游戏配置表，打成一个 zip。
+    // 全部读本地，不发请求 —— 这个功能的场景就是"旧机已经不打算再登录了"。
+    val backupExporter = remember {
+        BackupExporter(
+            store,
+            database.matchDao(),
+            database.matchBossStatDao(),
+            database.configCacheDao(),
+        )
+    }
+    val saveBackupFile = rememberZipFileSaver { saved ->
+        exportMessage = if (saved) backupSummary.text else null
     }
 
     // 实验性功能：把本机对局导出成 CSV / JSON。
@@ -559,12 +817,14 @@ fun AppContent(
                     onOpenAbout = { openDetail(AppDetail.ABOUT) },
                     onOpenTheme = { openDetail(AppDetail.THEME) },
                     onOpenBuildPlan = { openDetail(AppDetail.BUILD_PLAN) },
+                    onOpenWiki = { openDetail(AppDetail.WIKI) },
                     buildPlan = buildPlan,
                     firstWinCount = overviewState.firstWinCount,
                     overviewViewModel = overviewViewModel,
                     signInViewModel = signInViewModel,
                     qqGiftViewModel = qqGiftViewModel,
                     xinyueViewModel = xinyueViewModel,
+                    supercoreViewModel = supercoreViewModel,
                     historyViewModel = historyViewModel,
                     mapViewModel = mapViewModel,
                     gameConfig = gameConfig,
@@ -591,12 +851,25 @@ fun AppContent(
                         retentionMonths = retentionMonths,
                         autoRefreshMinutes = autoRefreshMinutes,
                         topBarAccountEnabled = topBarAccountEnabled,
+                        scoreWanTargets = scoreWanTargets,
                         compositeScoreEnabled = compositeScoreEnabled,
+                        proxyModeEnabled = proxyModeEnabled,
                     ),
                     onAutoRefreshChange = { scope.launch { settings.setAutoRefreshMinutes(it) } },
                     onRetentionMonthsChange = { scope.launch { settings.setRetentionMonths(it) } },
                     onTopBarAccountChange = { scope.launch { settings.setTopBarAccount(it) } },
+                    onScoreUnitToggle = { target ->
+                        scope.launch {
+                            // 读**当前**值再翻：弹层条目是组合期快照，连点两项时
+                            // 拿它算出来的整份集合可能已经过期
+                            val current = settings.scoreWanTargets.value
+                            settings.setScoreWanTargets(
+                                if (target in current) current - target else current + target,
+                            )
+                        }
+                    },
                     onCompositeScoreChange = { scope.launch { settings.setCompositeScore(it) } },
+                    onProxyModeChange = { scope.launch { settings.setProxyMode(it) } },
                     onClearLocalData = {
                         scope.launch {
                             repository.clearLocal()
@@ -608,7 +881,21 @@ fun AppContent(
                             overviewViewModel.refresh(cookie)
                         }
                     },
-                    onImportJson = { pickJsonFile() },
+                    onImportData = { pickBackupFile() },
+                    onExportData = {
+                        scope.launch {
+                            runCatching {
+                                // appVersion 只进清单，方便以后排查"这份包是哪版写的"
+                                backupExporter.build(currentEpochSeconds(), appVersionName())
+                            }.onSuccess { file ->
+                                backupSummary.text = "已导出 ${file.matchCount} 场对局" +
+                                    "（其中 ${file.detailCount} 场带详情）"
+                                saveBackupFile(file.fileName, file.bytes)
+                            }.onFailure { e ->
+                                exportMessage = "导出失败：${e.message ?: "读写异常"}"
+                            }
+                        }
+                    },
                     onExportMatches = { format ->
                         scope.launch {
                             val file = exporter.build(format, currentEpochSeconds())
@@ -625,8 +912,18 @@ fun AppContent(
                     // 挂在 MainScreen 内部（BarBlurHost 里）而不是这里，
                     // 因为预测性返回的虚化层要读同一个 backdrop。
                     detailVisible = detailShown,
-                    detailNavState = detailNavState,
-                    onDismissDetail = ::closeDetail,
+                    // 只有 wiki 那一页装的是 WebView：其余二级页照旧走 graphicsLayer
+                    detailTransformInLayer = visibleDetail != AppDetail.WIKI,
+                    // 同上：wiki 关掉预测性返回手势（跟手会让整颗 WebView 每帧重新合成）
+                    detailPredictiveBack = visibleDetail != AppDetail.WIKI,
+    detailNavState = detailNavState,
+    // 返回之前先过的一道闸。只有 wiki 要它（在网页首页上先「再按一次退出」），
+    // 别的二级页按返回就该直接关 —— 所以判据放在这里，不塞进图层里。
+    onConfirmDetailBack = {
+        visibleDetail == AppDetail.WIKI && confirmWikiExit()
+    },
+    detailSnackbarHost = detailSnackbarHost,
+    onDismissDetail = ::closeDetail,
                     detailContent = {
                         val roomId = visibleMatch
                         if (roomId != null) {
@@ -660,10 +957,12 @@ fun AppContent(
                                     viewModel = signInViewModel,
                                     qqViewModel = qqGiftViewModel,
                                     xinyueViewModel = xinyueViewModel,
+                                    supercoreViewModel = supercoreViewModel,
                                     autoSign = autoSignIn,
                                     autoClaimTask = autoClaimWelfareTask,
                                     autoClaimQqGift = autoClaimQqGift,
                                     autoClaimXinyueGift = autoClaimXinyueGift,
+                                    autoSupercore = autoSupercore,
                                     cookie = cookie,
                                     onBack = ::closeDetail,
                                     liquidGlassEnabled = liquidGlassEnabled,
@@ -681,6 +980,9 @@ fun AppContent(
                                     },
                                     onAutoClaimXinyueGiftChange = {
                                         scope.launch { settings.setAutoClaimXinyueGift(it) }
+                                    },
+                                    onAutoSupercoreChange = {
+                                        scope.launch { settings.setAutoSupercore(it) }
                                     },
                                 )
 
@@ -704,6 +1006,13 @@ fun AppContent(
                                         scope.launch { buildPlanStore.removeWeapon(it) }
                                     },
                                     liquidGlassEnabled = liquidGlassEnabled,
+                                )
+
+                                AppDetail.WIKI -> WikiScreen(
+                                    // 走「再按一次退出」而不是直接关：[confirmWikiExit]
+                                    // 里面已经判过网页历史，能退就退、不能退才拦。
+                                    onBack = { confirmWikiExit() },
+                                    backBridge = wikiBack,
                                 )
 
                                 AppDetail.THEME -> ThemeSettingsScreen(
@@ -755,29 +1064,46 @@ fun AppContent(
         },
     )
 
+    // 保存凭证：手填和「导入抓包」两条路共用一段。抽出来是因为存完之后那串动作
+    // （关弹层 + refreshAll）漏一步就会留下"登上了但数据还是上一个号的"这种毛病。
+    val applyCredential: suspend (String) -> Unit = { raw ->
+        guideSaving = true
+        guideError = null
+        val result = runCatching { session.save(raw) }
+        guideSaving = false
+        result.onSuccess { saved ->
+            accountSheet = false
+            // 和扫码登录、冷启动共用 refreshAll：以前这里只刷 home / overview / signIn
+            // 三个 ViewModel，漏了 api.updateCookie() 和游戏配置表 —— 前者是
+            // 「凭证靠时序副作用写进单例」那个坑，地图分布页会拿着上一个账号的凭证请求。
+            // 刚填的凭证要立刻走一次自动签到，不用等下次冷启动
+            refreshAll(saved)
+        }.onFailure { e ->
+            guideError = e.message ?: "保存失败"
+        }
+    }
+
+    LaunchedEffect(yybState.resultCookie) {
+        val raw = yybState.resultCookie ?: return@LaunchedEffect
+        runCatching { session.save(raw) }
+            .onSuccess { saved ->
+                refreshAll(saved)
+                yybLogin.close()
+                yybQrShown = false
+            }
+            .onFailure { error ->
+                yybLogin.close()
+                yybQrShown = false
+                scanMessage = "微信登录凭证校验失败：${error.message ?: "格式不对"}"
+            }
+    }
+
     AccountDetailSheet(
         show = accountSheet,
         cookie = cookie,
         saving = guideSaving,
         error = guideError,
-        onSave = { raw ->
-            scope.launch {
-                guideSaving = true
-                guideError = null
-                val result = runCatching { session.save(raw) }
-                guideSaving = false
-                result.onSuccess { saved ->
-                    accountSheet = false
-                    // 和扫码登录、冷启动共用 refreshAll：以前这里只刷 home / overview / signIn
-                    // 三个 ViewModel，漏了 api.updateCookie() 和游戏配置表 —— 前者是
-                    // 「凭证靠时序副作用写进单例」那个坑，地图分布页会拿着上一个账号的凭证请求。
-                    // 刚填的凭证要立刻走一次自动签到，不用等下次冷启动
-                    refreshAll(saved)
-                }.onFailure { e ->
-                    guideError = e.message ?: "保存失败"
-                }
-            }
-        },
+        onSave = { raw -> scope.launch { applyCredential(raw) } },
         onLogout = {
             scope.launch {
                 session.clear()
@@ -795,6 +1121,25 @@ fun AppContent(
             // 而且扫完的目的是回到概览看数据，不是回到这张卡
             accountSheet = false
             scannerShown = true
+        },
+        // 左上角「导入抓包」：从 HAR 里认出 openid / access_token 那条 cookie 直接登。
+        // 认出来就直接存——用户点"导入文件"就是要登录，再让他点一次 ✓ 是多余的。
+        // 解析放 Default 线程：一份抓包动辄几 MB，主线程 Jsons 一下能卡掉两帧。
+        onImportHar = { text ->
+            scope.launch {
+                val scan = withContext(Dispatchers.Default) { scanMiniProgramCookie(text) }
+                val raw = scan.cookie
+                if (raw != null) {
+                    applyCredential(raw)
+                } else {
+                    guideError = if (scan.looksLikeHar) {
+                        "这份 HAR 里没有带 openid / access_token 的请求，" +
+                            "要在微信小程序「逆战未来工具箱」里抓一次"
+                    } else {
+                        "这个文件读不出 HAR 结构，换一份抓包文件试试"
+                    }
+                }
+            }
         },
     )
 
@@ -822,10 +1167,62 @@ fun AppContent(
                 }
             },
             onDismiss = { scannerShown = false },
+            onShowYybQr = {
+                scannerShown = false
+                yybQrShown = true
+                yybLogin.start()
+            },
+            onShowShareQr = {
+                // 先收相机页再出码：两个都是 app 级浮层，同时开着时相机还在底下跑
+                scannerShown = false
+                qrShareShown = true
+            },
         )
     }
     // 扫码页开着的时候，返回键归它。不接的话按返回会直接把整个 app 退出去
     BackHandlerCompat(enabled = scannerShown) { scannerShown = false }
+
+    AnimatedVisibility(
+        visible = yybQrShown,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        YybQrLoginScreen(
+            state = yybState,
+            onBack = {
+                yybLogin.close()
+                yybQrShown = false
+                scannerShown = true
+            },
+            onRetry = { yybLogin.start() },
+        )
+    }
+    BackHandlerCompat(enabled = yybQrShown) {
+        yybLogin.close()
+        yybQrShown = false
+        scannerShown = true
+    }
+
+    // 「反重力登录」出码页。排在扫码页之后 = 盖在它上面；进出各给一个淡入淡出，
+    // 因为相机页是黑的、这页是主题背景色，硬切会像闪了一下。
+    AnimatedVisibility(
+        visible = qrShareShown,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        QrShareScreen(
+            credential = cookie,
+            onBack = {
+                qrShareShown = false
+                // 回扫码页而不是直接盖回主界面：用户是从那儿点进来的
+                scannerShown = true
+            },
+        )
+    }
+    BackHandlerCompat(enabled = qrShareShown) {
+        qrShareShown = false
+        scannerShown = true
+    }
 
     scanPending?.let { pending ->
         WindowDialog(
@@ -975,9 +1372,25 @@ private fun MainScreen(
     onOpenAbout: () -> Unit,
     onOpenTheme: () -> Unit,
     onOpenBuildPlan: () -> Unit,
+    onOpenWiki: () -> Unit,
+    onProxyModeChange: (Boolean) -> Unit,
     buildPlan: BuildPlan,
     detailVisible: Boolean,
+    /** 见 [PredictiveNavLayer] 的同名参数：内容里有 WebView 的页（wiki）传 false。 */
+    detailTransformInLayer: Boolean,
+    /**
+     * 见 [PredictiveNavBackHandler] 的同名参数：wiki 传 false（不要跟手返回）。
+     *
+     * ⚠️ 和 [detailTransformInLayer] 目前是**同一个判据**，但含义不同：一个管"位移
+     * 走哪条渲染路径"，一个管"要不要跟手"。别图省事合并成一个参数——
+     * 哪天某个页面没有 WebView 但也想关掉跟手，合并了就改不动了。
+     */
+    detailPredictiveBack: Boolean,
     detailNavState: PredictiveNavLayerState,
+    /** 见 [PredictiveNavBackHandler] 的同名参数：返回 true = 这次返回被拦下。 */
+    onConfirmDetailBack: () -> Boolean,
+    /** 二级页那层的 Snackbar 宿主。必须挂在这一层**之上**，否则会被铺满整屏的二级页盖住。 */
+    detailSnackbarHost: SnackbarHostState,
     onDismissDetail: () -> Unit,
     detailContent: @Composable () -> Unit,
     firstWinCount: Int?,
@@ -985,6 +1398,7 @@ private fun MainScreen(
     signInViewModel: SignInViewModel,
     qqGiftViewModel: QqGiftViewModel,
     xinyueViewModel: XinyueViewModel,
+    supercoreViewModel: SupercoreViewModel,
     historyViewModel: HistoryViewModel,
     mapViewModel: MapDistributionViewModel,
     gameConfig: com.nzd.antigravitypanel.data.remote.dto.GameConfigDto,
@@ -1004,9 +1418,11 @@ private fun MainScreen(
     onAutoRefreshChange: (Int) -> Unit,
     onRetentionMonthsChange: (Int) -> Unit,
     onTopBarAccountChange: (Boolean) -> Unit,
+    onScoreUnitToggle: (ScoreUnitTarget) -> Unit,
     onCompositeScoreChange: (Boolean) -> Unit,
     onClearLocalData: () -> Unit,
-    onImportJson: () -> Unit,
+    onImportData: () -> Unit,
+    onExportData: () -> Unit,
     onExportMatches: (MatchExportFormat) -> Unit,
 ) {
     val pagerState = rememberPagerState(pageCount = { Tabs.COUNT })
@@ -1022,14 +1438,16 @@ private fun MainScreen(
     val mapSeasonSelected by mapViewModel.seasonSelection.collectAsState()
 
     // 顶栏账号胶囊：开关和名片都在**这里** collect，不接外层传进来的快照。
-    // 三道闸：开关开着 → 有凭证 → 这张名片属于当前这个号（换号后缓存里还留着旧名字，
-    // 不比对 openid 就会先顶一会儿上一个号的昵称）。
+    // 两道闸：开关开着 → （没登录，摆占位）或者（有凭证且这张名片属于当前这个号）。
+    // 名片那道还要比对 openid：换号后缓存里还留着旧名字，不比对就会先顶一会儿上一个号的昵称。
     val topBarAccountEnabled by userSettings.topBarAccount.collectAsState()
     val overviewState by overviewViewModel.state.collectAsState()
     val topBarAccount = overviewState.account
         ?.takeIf { it.openid.isBlank() || it.openid == cookie?.openid }
         ?.takeIf { it.nickname.isNotBlank() || it.openid.isNotBlank() }
-    val showTopBarAccount = topBarAccountEnabled && cookie != null && topBarAccount != null
+    // ⚠️ 没有凭证时**也要摆**（profile 传 null 就是未登录态）：默认开关是开的，
+    // 首屏左侧空一块的话用户既看不到登录入口、也发现不了这里有东西。
+    val showTopBarAccount = topBarAccountEnabled && (cookie == null || topBarAccount != null)
 
     val navigationItems = remember {
         listOf(
@@ -1048,7 +1466,7 @@ private fun MainScreen(
     val bottomBarProgress = remember { Animatable(0f) }
 
     LaunchedEffect(detailVisible, detailNavState.isBackActive) {
-        // 预测返回手势期间**不插手**：那一段位移交给 [bottomBarHidden] 走跟手分支，
+        // 预测返回手势期间**不插手**：那一段位移交给 backgroundDepth 走跟手分支，
         // 这里插一脚的话，手势刚起手底栏就自己弹回来了。
         if (detailNavState.isBackActive) return@LaunchedEffect
         bottomBarProgress.animateTo(
@@ -1069,11 +1487,10 @@ private fun MainScreen(
     // 提交时 commitBack 把它送到 0（底栏归位），两种结局都不用额外接。
     // 手势结束那一刻 isBackActive 转假，[bottomBarProgress] 已经被
     // additionalCommitAnimation 送到 0 了，两条支路在这里是连续的，不会跳。
-    val bottomBarHidden = if (detailNavState.isBackActive) {
-        detailNavState.backgroundDepth.value.coerceIn(0f, 1f)
-    } else {
-        bottomBarProgress.value
-    }
+    //
+    // ⚠️⚠️ 这份"隐藏进度"**不在 composition 里读成 val**。那两个动画值跟手时每帧都在变，
+    // 读成 val 就等于让 MainScreen 每帧重组一次 —— 二级页（wiki 那颗 WebView）也会被
+    // 一起拖着重组。挪到下面 graphicsLayer 的闭包里读：Compose 只把这一层标成"要重画"。
 
     // 磨砂的宿主必须包在 Scaffold 外面：它负责开离屏 layer，
     // 顶栏和页面内容都从同一块 layer 上取像素。
@@ -1081,7 +1498,12 @@ private fun MainScreen(
         enabled = liquidGlassEnabled,
         // 返回手势期间要虚化背景，那一层得采样当前屏幕内容。
         // 就算用户关了磨砂，这里也照样得开离屏 layer，否则虚化退化成一层纯色。
-        captureForEffects = detailNavState.requiresBackdropCapture(detailVisible),
+        //
+        // ⚠️ 磨砂开着时短路掉后半段：[enabled] 那一支路已经保证有 backdrop 了，再判一遍
+        // 纯属多余 —— 而 [requiresBackdropCapture] 读的是 backdropIntensity 的动画值，
+        // 跟手时每帧都在变，等于让 MainScreen 每帧重组一次。磨砂关着时行为与原来一致。
+        captureForEffects = !liquidGlassEnabled &&
+            detailNavState.requiresBackdropCapture(detailVisible),
     ) {
         // 顶栏**不在这里**。它归每个一级页自己（见 [RootPage]），这样切页时顶栏是跟着
         // 页面一起横向滑进来的，而不是原地换一行标题 —— 而且各页的折叠状态互不干扰：
@@ -1095,8 +1517,14 @@ private fun MainScreen(
                 Box(
                     modifier = Modifier
                         .graphicsLayer {
-                            translationY = size.height * bottomBarHidden
-                            alpha = 1f - bottomBarHidden
+                            // 见上面那段的说明：动画值在**绘制期**读，不在组合期读。
+                            val hidden = if (detailNavState.isBackActive) {
+                                detailNavState.backgroundDepth.value.coerceIn(0f, 1f)
+                            } else {
+                                bottomBarProgress.value
+                            }
+                            translationY = size.height * hidden
+                            alpha = 1f - hidden
                         }
                         // 上方留出[BottomBarShadowSpace]给外投影：alpha < 1 会开离屏层，
                         // 层外（胶囊边界之外）画的东西会被裁掉，不留白顶部那道就没了。
@@ -1113,9 +1541,17 @@ private fun MainScreen(
                         // 不会再引发切页——底栏组件里那条"回灌即回调"的路已经拿掉了。
                         selectedIndex = pagerState.currentPage,
                         onItemClick = { index ->
-                            // 已经在这一页就别再滚一次：既省一次动画，也避免打断正在跑的那次。
-                            // 滑出过程中（二级页在场）也不响应：那时候底栏已经看不见了。
-                            if (!detailVisible && index != pagerState.settledPage) {
+                            // 不能用 settledPage 去重：A → B 的动画中途 currentPage 已到 B、
+                            // settledPage 仍是 A，这时点回 A 若被过滤掉，底栏已乐观选中 A，
+                            // Pager 却继续停在 B，两边就会一直对不上。连续滚动由 Pager 的
+                            // 滚动互斥取消旧动画，保证最后一次点击的目标生效。
+                            if (shouldRequestTabScroll(
+                                    detailVisible = detailVisible,
+                                    targetIndex = index,
+                                    currentPage = pagerState.currentPage,
+                                    currentPageOffsetFraction = pagerState.currentPageOffsetFraction,
+                                )
+                            ) {
                                 coroutineScope.launch { pagerState.animateScrollToPage(index) }
                             }
                         },
@@ -1146,9 +1582,30 @@ private fun MainScreen(
                             Tabs.TITLES[page]
                         }
                         // 只有概览页有账号胶囊：它显示的是**当前登录的这个游戏账号**，
-                        // 摆在历史 / 地图分布那些页上不合适。
-                        val chipProfile = if (page == Tabs.OVERVIEW && showTopBarAccount) {
-                            topBarAccount
+                        // 摆在历史 / 地图分布那些页上不合适。没登录时也占着这一格（profile 为 null），
+                        // 靠 [chipVisible] 而不是 [chipProfile] 判断要不要摘掉标题 ——
+                        // 未登录态下 profile 本来就是 null，拿它判断会把占位胶囊一起吞掉。
+                        val chipVisible = page == Tabs.OVERVIEW && showTopBarAccount
+                        // ⚠️ 没凭证时**必须**把名片丢掉，哪怕缓存里还留着上一个号的昵称：
+                        // 退出登录后概览缓存可能还挂着旧 account，照抄就会顶着别人的名字说"未登录"，
+                        // 红点也跟着跑到一个看起来登着的头像上。
+                        val chipProfile = if (chipVisible && cookie != null) topBarAccount else null
+                        // 账号胶囊的玻璃底和右侧按钮同源，都画在顶栏外面那层不被裁的 overlay 上。
+                        // 锚点在这里建：它和这一页的顶栏槽位是同一份生命周期。
+                        val chipGlassAnchor = remember { TopBarGlassAnchor() }
+                        // 显式标出 @Composable 函数类型：写成 `if (...) { { ... } } else null`
+                        // 让编译器从参数类型反推也行，但那样可读性差，而且以后拆成变量容易漏类型。
+                        val chipGlass: (@Composable () -> Unit)? = if (chipVisible) {
+                            {
+                                AccountTopBarChip(
+                                    profile = chipProfile,
+                                    partition = partitionLabelOf(cookie),
+                                    // 未登录才亮红点：它就是"这里还差一步"的提示，
+                                    // 登录成功后 cookie 一有值自然就不画了
+                                    showLoginDot = cookie == null,
+                                    onClick = onOpenAccountDetail,
+                                )
+                            }
                         } else {
                             null
                         }
@@ -1158,17 +1615,18 @@ private fun MainScreen(
                             // 一行中间一个应用名、左边一个头像昵称，读起来像两个标题在打架。
                             // 同时把大标题也整块去掉，改由概览页画在列表里（跟着内容滚），
                             // 否则它会被顶栏收走 —— 用户要的是"像状态卡一样跟着页面移动"。
-                            collapsedTitle = if (chipProfile != null) "" else pageTitle,
-                            largeTitle = if (chipProfile != null) null else pageTitle,
+                            collapsedTitle = if (chipVisible) "" else pageTitle,
+                            largeTitle = if (chipVisible) null else pageTitle,
                             navigationIcon = {
-                                if (chipProfile != null) {
-                                    AccountTopBarChip(
-                                        profile = chipProfile,
-                                        partition = partitionLabelOf(cookie),
-                                        onClick = onOpenAccountDetail,
-                                    )
+                                // 真身已经搬到 overlay 上了，槽位里只留一个同高（42dp）的占位：
+                                // 它既撑住 Miuix 的 navigationIcon 内边距，又把坐标报给锚点。
+                                // 标题在这页是空串，所以占位宽度只影响内边距、不影响排版。
+                                if (chipVisible) {
+                                    TopBarGlassPlaceholder(chipGlassAnchor)
                                 }
                             },
+                            startGlassAnchor = if (chipVisible) chipGlassAnchor else null,
+                            startGlass = chipGlass,
                             actions = {
                                 when (page) {
                                     Tabs.OVERVIEW -> {
@@ -1177,6 +1635,17 @@ private fun MainScreen(
                                         // 两颗玻璃之间留 [TOP_BAR_GLASS_GAP]：贴着放时
                                         // 两个圆相切，读起来像一颗连体按钮。
                                         Row(horizontalArrangement = Arrangement.spacedBy(TOP_BAR_GLASS_GAP)) {
+                                            // wiki 入口放在**最左**：它跟数据无关，是个"去别处查资料"的出口，
+                                            // 紧挨着刷新会让人以为点了它就会重新拉数据。
+                                            TopBarGlassChip {
+                                                IconButton(onClick = onOpenWiki) {
+                                                    Icon(
+                                                        imageVector = AutoStoriesIcon,
+                                                        contentDescription = "查询 Wiki",
+                                                        tint = MiuixTheme.colorScheme.onSurface,
+                                                    )
+                                                }
+                                            }
                                             TopBarGlassChip {
                                                 FirstWinChestButton(
                                                     count = firstWinCount,
@@ -1239,8 +1708,9 @@ private fun MainScreen(
                                     signInViewModel = signInViewModel,
                                     qqGiftViewModel = qqGiftViewModel,
                                     xinyueViewModel = xinyueViewModel,
+                                    supercoreViewModel = supercoreViewModel,
                                     // 账号模式下顶栏没有大标题，那一句交给页面自己画在列表首项
-                                    inlineTitle = if (chipProfile != null) pageTitle else null,
+                                    inlineTitle = if (chipVisible) pageTitle else null,
                                     onOpenSignIn = onOpenSignIn,
                                     onOpenAccountDetail = onOpenAccountDetail,
                                     onOpenAllActivities = {
@@ -1248,6 +1718,8 @@ private fun MainScreen(
                                     },
                                     onOpenBuildPlan = onOpenBuildPlan,
                                     plan = buildPlan,
+                                    // 积分单位要跟着设置变，所以传对象而不是读好的 Boolean
+                                    userSettings = userSettings,
                                     insets = insets,
                                 )
 
@@ -1256,6 +1728,7 @@ private fun MainScreen(
                                     config = gameConfig,
                                     pinned = pinned,
                                     favorite = favorite,
+                                    userSettings = userSettings,
                                     insets = insets,
                                     onOpenDetail = { roomId ->
                                         onOpenMatchDetail(roomId)
@@ -1272,11 +1745,14 @@ private fun MainScreen(
                                     onAutoRefreshChange = onAutoRefreshChange,
                                     onRetentionMonthsChange = onRetentionMonthsChange,
                                     onTopBarAccountChange = onTopBarAccountChange,
+                                    onScoreUnitToggle = onScoreUnitToggle,
                                     onCompositeScoreChange = onCompositeScoreChange,
+                                    onProxyModeChange = onProxyModeChange,
                                     onClearLocalData = onClearLocalData,
                                     onOpenAbout = onOpenAbout,
                                     onOpenTheme = onOpenTheme,
-                                    onImportJson = onImportJson,
+                                    onImportData = onImportData,
+                                    onExportData = onExportData,
                                     onExportMatches = onExportMatches,
                                     insets = insets,
                                 )
@@ -1305,6 +1781,8 @@ private fun MainScreen(
             state = detailNavState,
             // 最大横移距离可调（设置 → 外观 → 主题 → 预测返回距离）
             maxTranslationPercent = predictiveBackTranslation.toLong(),
+            // wiki 那一页里是整颗 WebView，跟手位移不能走 graphicsLayer（会开离屏层）
+            transformInLayer = detailTransformInLayer,
         ) {
             detailContent()
         }
@@ -1313,12 +1791,31 @@ private fun MainScreen(
             enabled = detailVisible,
             state = detailNavState,
             maxTranslationPercent = predictiveBackTranslation.toLong(),
+            predictive = detailPredictiveBack,
+            confirmBack = onConfirmDetailBack,
             onDismiss = onDismissDetail,
             // 手势提交时底栏跟着页面一起归位（同一组 duration / easing）
             additionalCommitAnimation = { durationMillis, easing ->
                 bottomBarProgress.animateTo(0f, tween(durationMillis, easing = easing))
             },
         )
+
+        // 「再按一次退出」那句提示。
+        // ⚠️⚠️ 必须排在所有图层**之后**：二级页那层是铺满整屏的，写在它前面会被整个挡掉。
+        //
+        // ⚠️ 外面这层 Box 是必需的：BarBlurHost 的 content 不是 BoxScope，拿不到 `align`；
+        // 而 SnackbarHost 自己只是 `contentAlignment = BottomCenter`（尺寸由父布局定），
+        // 不给 align 的话整块会被摆在左上角。
+        // 只按位置传前两个参数、snackbar 内容走尾随 lambda：Miuix 的 SnackbarHost
+        // 参数名在不同版本间改过，逐个写名字反而容易被坑。
+        Box(modifier = Modifier.fillMaxSize()) {
+            SnackbarHost(
+                detailSnackbarHost,
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp),
+            ) { data -> Snackbar(data) }
+        }
     }
 }
 
@@ -1358,6 +1855,18 @@ private fun RootPage(
      */
     largeTitle: String? = title,
     navigationIcon: @Composable () -> Unit = {},
+    /**
+     * 顶栏**左侧**那组玻璃（概览页的账号胶囊）的定位锚点。
+     *
+     * 和右侧 `endGlassAnchor` 同一套机制：Miuix 顶栏自带 `clipToBounds()`，
+     * 玻璃阴影溢出到胶囊外面会被切成直边，所以真身要画在 `BlurredBar` 那层
+     * 不被裁的 overlay 上；顶栏槽位里只留 [TopBarGlassPlaceholder] 上报坐标。
+     *
+     * 传 null = 这一页左侧没有玻璃（历史 / 地图分布这些不摆账号胶囊的页面）。
+     */
+    startGlassAnchor: TopBarGlassAnchor? = null,
+    /** 顶栏左侧那组玻璃本身。和 [startGlassAnchor] 成对出现。 */
+    startGlass: (@Composable () -> Unit)? = null,
     // RowScope：TopAppBar 的 actions 就是一行，跟着它走才能在里面用 Modifier.weight 之类的
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
@@ -1380,6 +1889,8 @@ private fun RootPage(
                 topBar = {
                     BlurredBar(
                         topGradient = true,
+                        startGlassAnchor = startGlassAnchor,
+                        startGlass = startGlass,
                         endGlassAnchor = endGlassAnchor,
                         endGlass = actions,
                     ) {
@@ -1441,6 +1952,12 @@ private fun RootPage(
 /** 悬浮底栏回到原位的时长。比二级页滑出(380ms)短一点，视觉上是"页面先把路让开"。 */
 private const val BOTTOM_BAR_ENTER_DURATION = 300
 
+/** wiki 在网页首页上「再按一次退出」的有效期（秒）。过了就当没这回事，重新提示。 */
+private const val WIKI_EXIT_PROMPT_WINDOW_SEC = 5L
+
+/** 那句提示的文案。 */
+private const val WIKI_EXIT_PROMPT = "已经在 Wiki 首页了，再按一次返回退出"
+
 /**
  * 每日首胜宝箱按钮。图标右上角挂一个小红点，红点里是**还能领几个**。
  *
@@ -1470,7 +1987,9 @@ private fun FirstWinChestButton(
     ) {
         IconButton(onClick = onClick) {
             Icon(
-                imageVector = MiuixIcons.TopDownloads,
+                // 公文包（Material `business_center`）：这颗按钮是"每日首胜宝箱"，
+                // 论形状说的是奖励/福利，不是"下载量"——之前那颗 TopDownloads 容易被读成下载。
+                imageVector = MaterialGlyphs.BusinessCenter,
                 contentDescription = "每日首胜宝箱",
                 tint = MiuixTheme.colorScheme.onSurface,
             )

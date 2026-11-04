@@ -1,6 +1,7 @@
 package com.nzd.antigravitypanel.ui.signin
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,7 +63,8 @@ internal const val SIGNIN_RISK_NOTICE =
  * 按钮真实高度是「内容 + insideMargin」，比 40 高。拿 40 去顶 height() 会把一行字上下裁掉。
  * 52 的内容区有 28dp，一行字怎么都放得下。
  */
-private val ACTION_BUTTON_HEIGHT = 52.dp
+internal val ACTION_BUTTON_HEIGHT = 52.dp
+
 
 /**
  * 轻触签到卡片呼出的「cookie 设定」。QQ 游戏中心周签到和心悦悦享卡共用一份。
@@ -115,11 +119,23 @@ fun CredentialSheet(
         title = "Cookie 设定",
         onDismissRequest = onDismiss,
     ) {
+        // 外层只负责"滚动区 + 固定底栏"，自身不滚。
+        // 滚动区高度 = 弹层可用高度 - 底栏，保证底栏永远在屏幕里（小屏 / 键盘弹起也成立）。
+        // 让出系统导航栏（手势条）+ 12dp：弹层贴底，不让 inset 的话底栏会被手势条压住
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp),
+        ) {
+        val contentMax = (maxHeight - ACTION_BUTTON_HEIGHT).coerceAtLeast(200.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = contentMax)
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 16.dp),
+                .padding(bottom = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             HintCard(text = hint)
@@ -179,11 +195,13 @@ fun CredentialSheet(
                 )
             }
 
-            // 「导入抓包」和「清除凭证」并排：左边那颗是方形的（宽高接近 1:1），
-            // 蓝色底白色 Import 图标；右边那条按剩余宽度铺满。
-            // 清除凭证就此不再独占一行——它是低频操作，给一整行太浪费，
-            // 而且和"导入"放在一起正好是"换凭证"这一件事的两头。
-            Row(
+        }
+
+        // 「导入抓包」和「清除凭证」并排，**固定在弹层底部、不跟着内容滚**：
+        // 左边那颗是方形的（宽高接近 1:1），蓝色底白色 Import 图标；
+        // 右边那条按剩余宽度铺满。没填过凭证时右边变灰禁用 ——
+        // 位置要一直在（用户得知道"这里能清"），只是点不动。
+        Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     // 行高写死，方形那颗才有确定的解：fillMaxHeight 拿到 52，
@@ -219,30 +237,31 @@ fun CredentialSheet(
                     )
                 }
 
-                // 清除凭证只在真的存过时才给：没凭证还摆一个"清除"会让人以为自己配过。
-                // 红色 + 白字，和「退出登录」那颗一个套路；清掉之后不可恢复，
-                // 所以点了先弹一次确认。
+                // 清除凭证**一直在**：没填过时置灰禁用（用户得知道这里有这个口子），
+                // 填过之后才是红底白字。清掉不可恢复，所以点了先弹一次确认。
                 //
                 // minHeight 必须清成 0：默认 40dp 会顶住 height(52)，
                 // 但 40 本身装不下一行字（内容区只剩 14dp），四个字被上下裁掉。
                 // insideMargin 纵向压到 12，内容区 28dp，怎么换字号都放得下。
-                if (bound) {
-                    Button(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        minHeight = 0.dp,
-                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            color = MiuixTheme.colorScheme.error,
-                            contentColor = Color.White,
-                        ),
-                        onClick = { confirmClear = true },
-                    ) {
-                        Text("清除凭证")
-                    }
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    minHeight = 0.dp,
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    enabled = bound,
+                    colors = ButtonDefaults.buttonColors(
+                        color = MiuixTheme.colorScheme.error,
+                        disabledColor = MiuixTheme.colorScheme.disabledSecondaryVariant,
+                        contentColor = Color.White,
+                        disabledContentColor = MiuixTheme.colorScheme.disabledOnSecondaryVariant,
+                    ),
+                    onClick = { if (bound) confirmClear = true },
+                ) {
+                    Text("清除凭证")
                 }
             }
+        }
         }
     }
 

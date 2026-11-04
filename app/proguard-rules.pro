@@ -81,6 +81,9 @@
 -keepclasseswithmembernames class * {
     native <methods>;
 }
+# GoMobile 的 go.Seq 会在 JNI 双向回调里按名字访问，生成类不能靠普通调用链摇树。
+-keep class go.** { *; }
+-keep class com.nzd.antigravitypanel.yyb.** { *; }
 
 # ---------------- 通用 ----------------
 # Signature 丢了泛型类型信息，ViewModel 的 StateFlow<List<X>> 在 R8 内联后

@@ -105,6 +105,61 @@ def image_files(directory):
     }
 
 
+def image_files_any(*directories):
+    """按顺序合并多个图目录，**前面的优先**。
+
+    wiki 的 `public/icons/` 是原始 png，`public/webp/icons/` 是同一批的 webp 镜像；
+    两只目录并不完全重合 —— 少数武器（S4 那批）只有 webp 那份，
+    只扫 png 目录会让它们变成"无图"。
+    """
+    merged = {}
+    for directory in directories:
+        for name, path in image_files(directory).items():
+            merged.setdefault(name, path)
+    return merged
+
+
+def existing_build_numbers(fun_name):
+    """读 `BuildArt.android.kt`，拿回「名字 -> 上一轮的 `build_*_NNN`」。
+
+    编号**一旦发出去就复用**：不这样的话，往列表中间插一把新武器会让它后面
+    所有补图的编号整体后移，git 里立刻多出一串「删一张 + 加一张」的二进制 diff。
+    """
+    path = os.path.join(ANDROID_DIR, "ui", "component", "BuildArt.android.kt")
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as fp:
+        source = fp.read()
+    head = "actual fun %s(name: String): Painter? {" % fun_name
+    if head not in source:
+        return {}
+    segment = source.split(head)[1].split("\n}")[0]
+    return {
+        name: res
+        for name, res in re.findall(
+            r'"((?:[^"\\]|\\.)*)" -> R\.drawable\.(build_\w+)', segment
+        )
+    }
+
+
+def number_allocator(used_numbers):
+    """给新补图发编号：从**已有最大值 + 1** 接着数，不动老编号。"""
+    state = {"next": (max(used_numbers) + 1) if used_numbers else 1}
+
+    def take():
+        value = state["next"]
+        state["next"] += 1
+        return value
+
+    return take
+
+
+def take_number(prefix, reused):
+    """上一轮已经用掉的编号，用来决定新编号从哪接着数。"""
+    return [int(v.rsplit("_", 1)[1]) for v in reused.values() if v.startswith(prefix + "_")]
+
+
+
 def convert(src, dst, width, height):
     with Image.open(src) as im:
         if im.mode not in ("RGB", "RGBA"):
@@ -122,11 +177,19 @@ def kotlin_literal(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def collect_weapons(wiki, art_map, res_dir):
+def collect_weapons(wiki, art_map, res_dir, reused=None):
     """返回 [(name, enum_name, type, rarity, drawable_or_None)]。"""
     directory = os.path.join(wiki, "data", "weapons")
-    normal = image_files(os.path.join(wiki, "public", "icons", "weapons", "normal"))
-    large = image_files(os.path.join(wiki, "public", "icons", "weapons", "large"))
+    normal = image_files_any(
+        os.path.join(wiki, "public", "icons", "weapons", "normal"),
+        os.path.join(wiki, "public", "webp", "icons", "weapons", "normal"),
+    )
+    large = image_files_any(
+        os.path.join(wiki, "public", "icons", "weapons", "large"),
+        os.path.join(wiki, "public", "webp", "icons", "weapons", "large"),
+    )
+    reused = reused or {}
+    take = number_allocator(take_number("build_weapon", reused))
 
     rows = []
     for filename in sorted(os.listdir(directory)):
@@ -159,7 +222,7 @@ def collect_weapons(wiki, art_map, res_dir):
             src = normal.get(name) or large.get(name)
             if src is not None:
                 added += 1
-                drawable = "build_weapon_%03d" % added
+                drawable = reused.get(name) or "build_weapon_%03d" % take()
                 convert(
                     src,
                     os.path.join(res_dir, drawable + ".webp"),
@@ -170,7 +233,7 @@ def collect_weapons(wiki, art_map, res_dir):
     return out, added, dropped
 
 
-def collect_perks(wiki, art_map, res_dir):
+def collect_perks(wiki, art_map, res_dir, reused=None):
     """
     返回 [(name, slot, rarity, drawable_or_None)]，一个名字可能占多个槽位。
 
@@ -187,7 +250,12 @@ def collect_perks(wiki, art_map, res_dir):
     属于"名字撞了的两个插件"。但本功能只记**名字**，选哪个存进去都一样，
     所以同样只留一条，取排序后的第一个（结果稳定，重跑不会变）。
     """
-    icons = image_files(os.path.join(wiki, "public", "icons", "perks"))
+    icons = image_files_any(
+        os.path.join(wiki, "public", "icons", "perks"),
+        os.path.join(wiki, "public", "webp", "icons", "perks"),
+    )
+    reused = reused or {}
+    take = number_allocator(take_number("build_perk", reused))
 
     # 按 (名字, 槽位) 去重，sorted 保证"留哪条"是确定的
     unique = {}
@@ -219,7 +287,7 @@ def collect_perks(wiki, art_map, res_dir):
         drawable = art_map.get(name)
         if drawable is None and icon in icons:
             added += 1
-            drawable = "build_perk_%03d" % added
+            drawable = reused.get(name) or "build_perk_%03d" % take()
             convert(icons[icon], os.path.join(res_dir, drawable + ".webp"), PERK_SIZE, PERK_SIZE)
         out.append((name, slot, rarity, drawable))
     return out, added, dropped
@@ -325,12 +393,20 @@ def main():
     plugin_art = existing_art_map("plugin")
     print("已有武器图 %d 张，插件图 %d 张" % (len(weapon_art), len(plugin_art)))
 
+    # 上一轮发出去的补图编号：先读出来，等会儿原样复用，别整批重排
+    prev_weapon = existing_build_numbers("buildWeaponPainter")
+    prev_perk = existing_build_numbers("buildPerkPainter")
+    if prev_weapon or prev_perk:
+        print("复用上一轮补图编号 %d / %d 个" % (len(prev_weapon), len(prev_perk)))
+
     stale = clean_previous(RES_DIR)
     if stale:
         print("清掉上一次生成的 %d 张孤儿图" % stale)
 
-    weapons, weapon_added, weapon_dropped = collect_weapons(wiki, weapon_art, RES_DIR)
-    perks, perk_added, perk_dropped = collect_perks(wiki, plugin_art, RES_DIR)
+    weapons, weapon_added, weapon_dropped = collect_weapons(
+        wiki, weapon_art, RES_DIR, prev_weapon
+    )
+    perks, perk_added, perk_dropped = collect_perks(wiki, plugin_art, RES_DIR, prev_perk)
 
     no_art = [name for name, _, _, _, art in weapons if art is None]
     print(

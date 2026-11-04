@@ -13,6 +13,7 @@ import com.nzd.antigravitypanel.domain.ActivityEvent
 import com.nzd.antigravitypanel.domain.GameMode
 import com.nzd.antigravitypanel.domain.MECHA_MAP_MODE
 import com.nzd.antigravitypanel.domain.isMecha
+import com.nzd.antigravitypanel.domain.matchTagOf
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.domain.parseCalendar
 import com.nzd.antigravitypanel.domain.upcomingActivities
@@ -58,6 +59,18 @@ data class RecentFive(
     /** 场均击杀。同样只在本地统计里出现（详情接口那边没取这一项）。 */
     val avgKills: Int? = null,
     val winCount: Int? = null,
+    /**
+     * 场均通关时长（秒）。取不到（详情里 `iDuration` 全是 0、本地库也没存）时为 null，
+     * UI 整格不显示 —— 摆一个「—」会让这一格永远占着位置却不给信息。
+     */
+    val avgDuration: Int? = null,
+    /**
+     * 「尽力 / 带飞」局数：这几局里命中任意一个标签的场次。
+     *
+     * 判据就是历史页那两个角标（[com.nzd.antigravitypanel.domain.matchTagOf]），
+     * 不另立一套。本地库模式拿不到全队 Boss 伤害 ⇒ null。
+     */
+    val tagCount: Int? = null,
     /** true = 这组数字是从本地库算的，Boss 伤害 / 金币拿不到。 */
     val localOnly: Boolean = false,
 )
@@ -316,11 +329,17 @@ fun summarizeLocalRecent(matches: List<MatchEntity>): RecentFive? {
     var kills = 0
     var mvp = 0
     var win = 0
+    var duration = 0L
+    var durationCount = 0
     for (match in matches) {
         score += match.score
         kills += match.kills
         if (match.rankValue == 1) mvp++
         if (match.isWin) win++
+        if (match.duration > 0) {
+            duration += match.duration
+            durationCount++
+        }
     }
     val count = matches.size
     return RecentFive(
@@ -329,6 +348,9 @@ fun summarizeLocalRecent(matches: List<MatchEntity>): RecentFive? {
         avgScore = score / count,
         avgKills = kills / count,
         winCount = win,
+        avgDuration = if (durationCount > 0) (duration / durationCount).toInt() else null,
+        // 本地没有全队 Boss 伤害 ⇒ 判不出标签，null 让 UI 不摆这一格
+        tagCount = null,
         localOnly = true,
     )
 }
@@ -346,6 +368,9 @@ fun summarizeRecent(details: List<GameDetailDto>): RecentFive? {
     var coin = 0L
     var mvp = 0
     var counted = 0
+    var durationSum = 0L
+    var durationCount = 0
+    var tagged = 0
 
     for (detail in details) {
         val self = detail.loginUserDetail ?: continue
@@ -356,6 +381,19 @@ fun summarizeRecent(details: List<GameDetailDto>): RecentFive? {
         score += selfScore
         val maxScore = detail.list.maxOfOrNull { it.baseDetail?.iScore ?: 0L } ?: selfScore
         if (selfScore > 0 && selfScore >= maxScore) mvp++
+
+        // 时长只统计**报得上来**的局：详情里这一项偶尔是 0（老对局 / 中途退出），
+        // 把它算进分母会把场均时长拉低成一个假数字
+        val duration = self.baseDetail?.iDuration ?: 0
+        if (duration > 0) {
+            durationSum += duration
+            durationCount++
+        }
+
+        // 「尽力 / 带飞」= 命中历史页任一标签的那两档，规则完全复用
+        bossDamageShareOf(detail)?.let { share ->
+            if (matchTagOf(share.self, share.team, share.rival) != null) tagged++
+        }
     }
     if (counted == 0) return null
 
@@ -365,6 +403,8 @@ fun summarizeRecent(details: List<GameDetailDto>): RecentFive? {
         avgScore = score / counted,
         avgBossDamage = bossDamage / counted,
         avgCoin = coin / counted,
+        avgDuration = if (durationCount > 0) (durationSum / durationCount).toInt() else null,
+        tagCount = tagged,
     )
 }
 

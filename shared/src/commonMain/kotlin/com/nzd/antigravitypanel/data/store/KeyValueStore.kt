@@ -51,7 +51,7 @@ object StoreKey {
      * 预测返回最大横移距离的默认值（百分比）。
      * 与 [com.nzd.antigravitypanel.ui.component.DEFAULT_PREDICTIVE_BACK_TRANSLATION_PERCENT] 是同一个数。
      */
-    const val PREDICTIVE_BACK_TRANSLATION_DEFAULT = 75
+    const val PREDICTIVE_BACK_TRANSLATION_DEFAULT = 40
 
     /** 置顶的 roomId 集合，逗号分隔。 */
     const val PINNED_ROOMS = "pinned_rooms"
@@ -173,8 +173,53 @@ object StoreKey {
      */
     const val XINYUE_AUTO_CLAIM = "xinyue_auto_claim"
 
+    /**
+     * 超核组队活动的网址（每期不同，用户手动粘）。
+     *
+     * 它是这一套功能的**入口**：活动号（actId）、gid、以及抽奖/签到按钮的 flow id
+     * 全部要从这个网址对应的活动页配置里读出来，所以它和凭证一样必须持久化。
+     */
+    const val SUPERCORE_ACTIVITY_URL = "supercore_activity_url"
+
+    /**
+     * 超核组队活动的请求头凭证（`T-OPENID` / `T-ACCESS-TOKEN` / `T-APPID`）。
+     *
+     * ⚠️ **第四套凭证**，和 [COOKIE_RAW]、[QQ_COOKIE_RAW]、[XINYUE_CREDENTIAL_RAW] 都不通用：
+     * 它走 QQ 互联登录（appid 101813972），服务端会校验 appid，
+     * 心悦悦享卡那对 header（appid 101484782）拿过来会直接 `appid校验不通过`。
+     */
+    const val SUPERCORE_CREDENTIAL_RAW = "supercore_credential_raw"
+
+    /** 超核活动页配置解析出来的按钮/flow 计划（`SupercorePlan` 的 JSON），避免每次冷启动都去抓页面。 */
+    const val SUPERCORE_PLAN_CACHE = "supercore_plan_cache"
+
+    /** 超核活动的今日状态缓存（`SupercoreStatus` 的 JSON）。 */
+    const val SUPERCORE_CACHE = "supercore_cache"
+
+    /** 旧版本的本机抽奖历史。新版本改用官方「领奖记录」，保留键名只为兼容旧备份。 */
+    const val SUPERCORE_DRAW_HISTORY = "supercore_draw_history"
+
+    /**
+     * 超核「打开APP自动签到、领奖并抽奖」开关。**只有 "0" 才是关**——默认开
+     * （默认开的理由见 `UserSettings.setAutoSupercore`）。
+     */
+    const val SUPERCORE_AUTO = "supercore_auto"
+
+    /** 选中的角色（`game_open_id|partition_id|role_id`），多角色账号用。 */
+    const val SUPERCORE_ROLE_KEY = "supercore_role_key"
+
     /** 「概览页顶栏显示账号信息」开关。**只有 "0" 才是关**——默认开。 */
     const val TOP_BAR_ACCOUNT = "top_bar_account"
+
+    /**
+     * 「代理模式」的**一次性**标记，存在即代表"下一次冷启动要保护一轮"。
+     *
+     * ⚠️ 它**不是**普通的持久化开关，别照 [SIGNIN_AUTO] 那套"没写过就是开"来读：
+     * 这里没写过就是**关**（默认不暂停）。写盘的唯一目的是让"下一次冷启动"
+     * 知道要跳过一次自动签到——因为冷启动那一发请求发生在任何 UI 出现之前，
+     * 靠内存态根本拦不住（见 `UserSettings.restore`）。
+     */
+    const val WIKI_PROXY_MODE = "wiki_proxy_mode"
 
     /**
      * 「用综合分替换经济转化」开关。**只有 "0" 才是关**——默认开。
@@ -182,6 +227,14 @@ object StoreKey {
      * 见 [com.nzd.antigravitypanel.data.settings.UserSettings.setCompositeScore]。
      */
     const val COMPOSITE_SCORE = "composite_score"
+
+    /**
+     * 「积分显示单位」：哪几个页面用万。逗号分隔的 [com.nzd.antigravitypanel.data.settings.ScoreUnitTarget] 名字。
+     *
+     * ⚠️ **键不存在 ≠ 空串**：不存在 = 从没设过 = 用默认值（历史 / 概览用万），
+     * 空串 = 用户把所有勾都取消了 = 全部显示完整数字。
+     */
+    const val SCORE_WAN_TARGETS = "score_wan_targets"
 
     /**
      * Build 计划（[com.nzd.antigravitypanel.data.build.BuildPlan] 的 JSON）。

@@ -19,27 +19,29 @@ import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.qq.QqWeeklySignIn
 import com.nzd.antigravitypanel.data.signin.SignInStatus
 import com.nzd.antigravitypanel.data.signin.WelfareTaskState
+import com.nzd.antigravitypanel.data.supercore.SupercoreStatus
 import com.nzd.antigravitypanel.data.xinyue.XinyueCardStatus
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.icon.extended.Ok
-import top.yukonga.miuix.kmp.icon.extended.Tasks
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
  * 概览页的签到卡。点开进二级页看明细。
  *
- * 三块签到并排，右侧图标是**同一个三态**（失败打叉 / 办完打勾 / 没办完打灰），
- * 三行各判各的：
- * - [available] 为 false：还没拿到（没登录），卡片照常在，说"登录后可自动签到"
- * - 拿到了但今天没签 / 每日任务奖励还没领：正常显示数字，图标打灰
+ * 四块签到并排，右侧图标是**同一个四态**（[SignInRowState]），各判各的：
+ * - 正在签到（这一轮还在拉）：转圈的 `CircularProgressIndicator`
+ * - 这一轮拉失败：红叉
+ * - 拿到了但今天没签 / 每日任务奖励还没领 / 没登录：灰叉
  * - 拿到了且签到和奖励都办完：打勾
  */
 @Composable
@@ -62,13 +64,26 @@ fun SignInCard(
     xinyueBound: Boolean,
     xinyueError: String? = null,
     xinyueLoading: Boolean = false,
+    /** 超核组队活动。**第四套凭证**：活动页的 T-OPENID / T-ACCESS-TOKEN / T-APPID。 */
+    supercoreStatus: SupercoreStatus,
+    supercoreAvailable: Boolean,
+    supercoreBound: Boolean,
+    supercoreError: String? = null,
+    supercoreLoading: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // 和下面两行同一个三态。这里**不看 loading**：冷启动摆的是缓存里
-    // 「今天已办完」的结论，这一轮还在拉就把勾收走，等于让结论先闪没再回来。
+    // 和下面三行同一个四态。这里**不看 loading 决定"办完没办完"**：冷启动摆的是
+    // 缓存里「今天已办完」的结论，这一轮还在拉就把勾收走，等于让结论先闪没再回来。
+    // loading 只用来回答"这一轮是不是还在签到"——已经有结论的行不转圈。
     val signInFailed = signInError != null
     val signInDone = available && !signInFailed && status.allDoneToday
+    val signInPhase = when {
+        signInFailed -> SignInRowState.Failed
+        signInDone -> SignInRowState.Done
+        loading -> SignInRowState.Signing
+        else -> SignInRowState.Pending
+    }
     SmallTitle(text = "每日签到")
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -93,20 +108,7 @@ fun SignInCard(
                     fontWeight = FontWeight.Medium,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
-                Icon(
-                    imageVector = when {
-                        signInFailed -> MiuixIcons.Close
-                        signInDone -> MiuixIcons.Ok
-                        else -> MiuixIcons.Tasks
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = when {
-                        signInFailed -> MiuixTheme.colorScheme.error
-                        signInDone -> signInAccentColor()
-                        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    },
-                )
+                SignInStateIcon(state = signInPhase)
             }
 
             Text(
@@ -153,7 +155,70 @@ fun SignInCard(
                 loading = xinyueLoading,
                 error = xinyueError,
             )
+
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(MiuixTheme.colorScheme.surfaceVariant),
+            )
+
+            SupercoreSignInRow(
+                status = supercoreStatus,
+                available = supercoreAvailable,
+                bound = supercoreBound,
+                loading = supercoreLoading,
+                error = supercoreError,
+            )
         }
+    }
+}
+
+/**
+ * 卡片里「超核组队活动」那一行。
+ *
+ * 打勾的条件比另三行多一条：签到和任务**都要办完**。这块的签到是"领第 N 天奖励"，
+ * 任务积分不领就没有抽奖次数，两件事一起才算今天的活干完了。
+ */
+@Composable
+private fun SupercoreSignInRow(
+    status: SupercoreStatus,
+    available: Boolean,
+    bound: Boolean,
+    loading: Boolean,
+    error: String?,
+) {
+    val failed = error != null
+    val done = available && !failed && !status.stale && !status.notStarted &&
+        status.signedToday && status.tasksDone
+    // 活动还没开始时不转圈：那不是"正在签到"，是"今天没这回事"。
+    val phase = when {
+        failed -> SignInRowState.Failed
+        done -> SignInRowState.Done
+        loading && !status.notStarted -> SignInRowState.Signing
+        else -> SignInRowState.Pending
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "超核组队活动",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = supercoreSummaryText(status, available, bound, loading, error),
+                modifier = Modifier.padding(top = 2.dp),
+                fontSize = 13.sp,
+                color = if (failed) {
+                    MiuixTheme.colorScheme.error
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                },
+            )
+        }
+        SignInStateIcon(state = phase)
     }
 }
 
@@ -166,11 +231,12 @@ fun SignInCard(
 /**
  * 卡片里周签到那一行。
  *
- * 右侧图标有**三种**，不是"勾 / 不勾"两态：
+ * 右侧图标有**四种**（[SignInRowState]），不是"勾 / 不勾"两态：
+ * - **转圈**：这一轮还在拉 = 正在签到。
  * - **叉**：这一轮拉失败了（`error` 非空）。之前失败也挂着勾——
  *   实际上只是把上一次缓存的结论又显示了一遍，用户看不出已经坏了。
  * - **勾**：今天真的确认过了，且今天没有可领的（= 已领取）。
- * - **任务图标（灰）**：还没确认完。这里包含"缓存已经跨天"的情况：
+ * - **灰叉**：还没确认完 / 今天确实没签。这里包含"缓存已经跨天"的情况：
  *   周签到是按周走的，隔天的旧数字不能再当今天的结论，
  *   否则会出现"都星期六了还显示星期五已签到"。
  */
@@ -183,11 +249,18 @@ private fun QqSignInRow(
     error: String?,
 ) {
     val failed = error != null
-    // ⚠️ **不看 loading**：冷启动摆的是缓存里"今天这份"的结论，这一轮还在拉就把勾
-    // 收走，等于让结论先闪没再回来。判断"还没确认完"只看**有没有今天的数据**：
-    // `!available` 是压根没缓存，`status.stale` 是缓存已经跨天。
+    // ⚠️ **不看 loading 判"办完没办完"**：冷启动摆的是缓存里"今天这份"的结论，
+    // 这一轮还在拉就把勾收走，等于让结论先闪没再回来。判断"还没确认完"只看
+    // **有没有今天的数据**：`!available` 是压根没缓存，`status.stale` 是缓存已经跨天。
+    // loading 只回答另一件事：这一轮是不是还在签到（→ 转圈）。
     val pending = !available || status.stale
     val done = available && !failed && !pending && !status.canClaim
+    val phase = when {
+        failed -> SignInRowState.Failed
+        done -> SignInRowState.Done
+        loading -> SignInRowState.Signing
+        else -> SignInRowState.Pending
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -207,20 +280,7 @@ private fun QqSignInRow(
                 },
             )
         }
-        Icon(
-            imageVector = when {
-                failed -> MiuixIcons.Close
-                done -> MiuixIcons.Ok
-                else -> MiuixIcons.Tasks
-            },
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = when {
-                failed -> MiuixTheme.colorScheme.error
-                done -> signInAccentColor()
-                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-            },
-        )
+        SignInStateIcon(state = phase)
     }
 }
 
@@ -239,7 +299,7 @@ private fun XinyueSignInRow(
     loading: Boolean,
     error: String?,
 ) {
-    // 和 QQ 那行同一个三态：失败打叉、没确认完打灰、确认领完了打勾。
+    // 和 QQ 那行同一个四态：失败打叉、这一轮还在拉就转圈、没确认完打灰叉、确认领完了打勾。
     // ⚠️ **不看 loading**（第一行就是这么定的）：冷启动摆的是缓存里"今天已领完"的
     // 结论，这一轮还在拉就把勾收走，等于让结论先闪没再回来。
     // 判断"还没确认完"靠的是 **有没有今天的数据**：`!available`（压根没缓存）
@@ -247,6 +307,12 @@ private fun XinyueSignInRow(
     val failed = error != null
     val done = available && !failed && !status.stale && status.hasCard &&
         !status.expired && !status.canClaim
+    val phase = when {
+        failed -> SignInRowState.Failed
+        done -> SignInRowState.Done
+        loading -> SignInRowState.Signing
+        else -> SignInRowState.Pending
+    }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -266,22 +332,56 @@ private fun XinyueSignInRow(
                 },
             )
         }
-        Icon(
-            imageVector = when {
-                failed -> MiuixIcons.Close
-                done -> MiuixIcons.Ok
-                else -> MiuixIcons.Tasks
-            },
+        SignInStateIcon(state = phase)
+    }
+}
+
+/**
+ * 签到行右侧那颗状态图标。
+ *
+ * 四态，颜色和图标一起换：
+ * - [SignInRowState.Signing]：`CircularProgressIndicator` 的不确定态（转圈）。
+ *   用 Miuix 的进度指示器而不是某个"加载中"图标——它不是图标，是"还在跑"这件事本身。
+ * - [SignInRowState.Failed]：红叉。这一轮坏了，比"没办"更重。
+ * - [SignInRowState.Pending]：灰叉。还没签 / 条件没满足。
+ * - [SignInRowState.Done]：绿勾。
+ *
+ * ⚠️ 转圈那颗的轨道色设成透明：18dp 的环上再叠一圈 `secondaryContainer`，
+ * 看起来像一颗实心圆环，反而看不出在转。
+ */
+@Composable
+private fun SignInStateIcon(state: SignInRowState) {
+    when (state) {
+        SignInRowState.Signing -> CircularProgressIndicator(
+            progress = null,
+            colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                foregroundColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                backgroundColor = Color.Transparent,
+            ),
+            strokeWidth = 2.dp,
+            size = 18.dp,
+        )
+        SignInRowState.Failed, SignInRowState.Pending -> Icon(
+            imageVector = MiuixIcons.Close,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = when {
-                failed -> MiuixTheme.colorScheme.error
-                done -> signInAccentColor()
-                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            tint = if (state == SignInRowState.Failed) {
+                MiuixTheme.colorScheme.error
+            } else {
+                MiuixTheme.colorScheme.onSurfaceVariantSummary
             },
+        )
+        SignInRowState.Done -> Icon(
+            imageVector = MiuixIcons.Ok,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = signInAccentColor(),
         )
     }
 }
+
+/** 签到行右侧图标的四态。判定规则各行的差异写在各自的注释里。 */
+private enum class SignInRowState { Signing, Pending, Failed, Done }
 
 /** 周签到那行的副标题。没绑定时不显示"第几天"——那是"不知道"，不是"第 0 天"。 */
 internal fun qqSummaryText(
@@ -311,6 +411,39 @@ internal fun qqSummaryText(
     // 「可领」留着——它是"还有事没办"，勾表达不出来。
     val state = if (status.canClaim) " · 可领" else ""
     return "$day$reward$state"
+}
+
+/**
+ * 超核那行的副标题。
+ *
+ * 「还没开始」优先于数字：活动没开时服务端也会给一份 holdList（所有 remain 都是 1），
+ * 照着念会变成"签到 0/9、可领"，那是假话。
+ */
+internal fun supercoreSummaryText(
+    status: SupercoreStatus,
+    available: Boolean,
+    bound: Boolean,
+    loading: Boolean = false,
+    error: String? = null,
+): String {
+    if (!bound) return "需要活动网址和凭证"
+    if (error != null) return "这一轮没拉到：${error.take(28)}"
+    if (status.notStarted) return status.message.ifBlank { "活动还没开始" }.take(30)
+    if (!available) return if (loading) "正在确认今天的状态…" else "还没拿到，点开看看"
+    if (status.stale) return if (loading) "正在确认今天的状态…" else "还没确认今天的状态"
+    val parts = buildList {
+        status.points?.let { add("积分 $it") }
+        if (status.signTotal > 0) add("签到 ${status.signClaimed}/${status.signTotal}")
+        // 「已抽 / 上限」而不是「剩余」：活动没开时 remain 就是上限 27，
+        // 写"剩 27 次"会让人以为自己一次没抽却已经占了 27 次额度。
+        if (status.drawsTotal != null && status.drawsRemain != null) {
+            val used = (status.drawsTotal - status.drawsRemain).coerceAtLeast(0)
+            add("抽奖 $used/${status.drawsTotal}")
+        }
+    }
+    if (parts.isEmpty()) return "暂时拿不到活动数据"
+    val prefix = if (status.signedToday) "今天已签到 · " else ""
+    return prefix + parts.joinToString(" · ")
 }
 
 /**

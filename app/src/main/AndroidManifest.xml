@@ -25,7 +25,12 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AntigravityPanel"
-        tools:ignore="UnusedAttribute">
+        tools:ignore="UnusedAttribute"
+        android:usesCleartextTraffic="true">
+        <!-- ⚠️ usesCleartextTraffic 是给 wiki「更多 → 本地测试」用的：
+             本地 dev server（192.168.x.x:3000 / localhost:3000）只有 http，
+             targetSdk ≥ 28 默认禁明文，WebView 会直接 ERR_CLEARTEXT_NOT_PERMITTED。
+             app 自己的接口全部是 https，放开明文不影响它们。 -->
 
         <activity
             android:name=".MainActivity"

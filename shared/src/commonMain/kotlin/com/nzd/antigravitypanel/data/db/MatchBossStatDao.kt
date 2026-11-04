@@ -11,6 +11,15 @@ interface MatchBossStatDao {
     @Upsert
     suspend fun upsert(item: MatchBossStatEntity)
 
+    /**
+     * 导入数据包用：整批写入。
+     *
+     * 和 [upsert] 分开而不是只留这个：详情页每次只记一局，单个 upsert 更直白；
+     * 这里要一次写几千行，逐条 upsert 会变成几千次事务。
+     */
+    @Upsert
+    suspend fun upsertAll(items: List<MatchBossStatEntity>)
+
     /** 给历史页做标签用。表撑死跟对局数一样多，整表读进来比按 id 逐个查省事。 */
     @Query("SELECT * FROM match_boss_stats")
     fun observeAll(): Flow<List<MatchBossStatEntity>>

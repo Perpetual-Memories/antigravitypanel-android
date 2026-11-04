@@ -109,6 +109,18 @@ class XinyueViewModel(
     }
 
     /**
+     * 只重读凭证（不发请求）。理由同 [QqGiftViewModel.reloadCredential]：
+     * 导入数据包之后存储里的凭证已经换了，而 [restore] 会在缓存齐全时直接返回。
+     */
+    suspend fun reloadCredential() {
+        val credential = repository.readCredential()
+        _state.value = _state.value.copy(
+            bound = credential != null,
+            credentialRaw = credential?.raw.orEmpty(),
+        )
+    }
+
+    /**
      * 拉状态。开了自动领取就顺手领——但要先看去重标记，同一天只试一次。
      *
      * 没绑凭证时什么都不做（也不报错）：这块是可选功能，不该在没配置的时候刷存在感。

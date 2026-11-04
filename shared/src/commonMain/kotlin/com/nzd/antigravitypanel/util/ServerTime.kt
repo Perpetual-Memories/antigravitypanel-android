@@ -106,6 +106,31 @@ fun serverDateKey(epochSec: Long): String {
     }
 }
 
+/**
+ * 服务端时区的「MM-dd HH:mm」。
+ *
+ * 抽奖历史只记本期活动内的记录，不需要年份；带年份反而把一行挤满。
+ * 仍然按北京时间切，理由同 [serverDateKey]。
+ */
+fun formatServerShortDateTime(epochSec: Long): String {
+    if (epochSec <= 0) return ""
+    val local = epochSec + SERVER_UTC_OFFSET_SECONDS
+    val days = Math.floorDiv(local, SECONDS_PER_DAY)
+    val timeOfDay = local - days * SECONDS_PER_DAY
+    val (_, month, day) = civilFromDays(days)
+    val hour = (timeOfDay / 3600).toInt()
+    val minute = ((timeOfDay % 3600) / 60).toInt()
+    return buildString {
+        append(month.toString().padStart(2, '0'))
+        append('-')
+        append(day.toString().padStart(2, '0'))
+        append(' ')
+        append(hour.toString().padStart(2, '0'))
+        append(':')
+        append(minute.toString().padStart(2, '0'))
+    }
+}
+
 /** Howard Hinnant 的 days_from_civil：把年月日转成 1970-01-01 起的天数。 */
 internal fun daysFromCivil(year: Int, month: Int, day: Int): Long {
     val y = (if (month <= 2) year - 1 else year).toLong()

@@ -1,7 +1,11 @@
 package com.nzd.antigravitypanel
 
 import com.nzd.antigravitypanel.data.credential.HarCredentialScanner
+import com.nzd.antigravitypanel.data.credential.NzCookie
 import com.nzd.antigravitypanel.data.credential.SignInCredentialKind
+import com.nzd.antigravitypanel.data.credential.WechatMiniCredential
+import com.nzd.antigravitypanel.data.credential.parseNzCookie
+import com.nzd.antigravitypanel.data.credential.scanMiniProgramCookie
 import com.nzd.antigravitypanel.data.qq.parseQqCredential
 import com.nzd.antigravitypanel.data.xinyue.parseXinyueCredential
 import kotlin.test.Test
@@ -90,6 +94,58 @@ class HarCredentialScanTest {
     fun 空串不炸() {
         assertFalse(HarCredentialScanner.scan("").looksLikeHar)
         assertFalse(HarCredentialScanner.scan("   ").looksLikeHar)
+    }
+
+    // ------------------------------------------------------------ 登录凭证（账号详细信息里的导入）
+
+    @Test
+    fun 从整条Cookie头里认出登录凭证() {
+        val scan = scanMiniProgramCookie(HAR_LOGIN_COOKIE_HEADER)
+        assertTrue(scan.looksLikeHar)
+        val raw = scan.cookie
+        check(raw != null) { "应该扫到 cookie" }
+        // 扫出来的原文必须能直接过解析器 —— 否则账号弹层里点导入只会得到一句"cookie 里找不到 xxx"
+        val credential = parseNzCookie(raw)
+        assertEquals("137700727749128", credential.openid)
+        assertEquals(NzCookie.REQUIRED_APPID, (credential as NzCookie).appid)
+    }
+
+    @Test
+    fun reqable把cookie拆成数组时也能拼回来() {
+        // reqable 导出的 HAR 里，cookie 常常只落在 request.cookies 数组里，
+        // 整条 Cookie 头反而是空的。只看头的话这份包会一句"没有登录请求"都认不出来。
+        val raw = scanMiniProgramCookie(HAR_LOGIN_COOKIE_ARRAY).cookie
+        check(raw != null) { "应该拼出 cookie" }
+        assertEquals("137700727749128", parseNzCookie(raw).openid)
+        assertTrue(raw.contains("access_token="))
+    }
+
+    @Test
+    fun 凭证在URL查询参数里也认() {
+        // 小程序有一部分接口把凭证拼在 query 上，不在头里
+        val raw = scanMiniProgramCookie(HAR_LOGIN_QUERY).cookie
+        check(raw != null) { "应该认出 query 里的凭证" }
+        assertEquals("137700727749128", parseNzCookie(raw).openid)
+    }
+
+    @Test
+    fun 微信区的登录凭证也认() {
+        val raw = scanMiniProgramCookie(HAR_LOGIN_WECHAT).cookie
+        check(raw != null) { "微信区没有 access_token，不能只认那一个键" }
+        assertTrue(parseNzCookie(raw) is WechatMiniCredential)
+    }
+
+    @Test
+    fun 抓错页面的HAR要说清楚是没抓到而不是文件坏了() {
+        // 是 HAR 但没有登录请求 → 引导用户去小程序里再抓一次；
+        // 不是 HAR → 让他换文件。两句话指向的动作不同，所以两个字段都要能区分
+        val wrongPage = scanMiniProgramCookie(HAR_NO_CREDENTIAL)
+        assertTrue(wrongPage.looksLikeHar)
+        assertNull(wrongPage.cookie)
+
+        val notHar = scanMiniProgramCookie("这不是 JSON")
+        assertFalse(notHar.looksLikeHar)
+        assertNull(notHar.cookie)
     }
 }
 
@@ -197,6 +253,77 @@ private const val HAR_NO_CREDENTIAL = """
         "request": {
           "url": "https://qh.qlogo.cn/g?b=qq",
           "headers": [{"name": "User-Agent", "value": "Mozilla/5.0"}]
+        }
+      }
+    ]
+  }
+}
+"""
+
+private const val HAR_LOGIN_COOKIE_HEADER = """
+{
+  "log": {
+    "entries": [
+      {
+        "request": {
+          "url": "https://comm.ams.game.qq.com/ide/?serviceId=95&method=center.user.game.list",
+          "headers": [
+            {"name": "Host", "value": "comm.ams.game.qq.com"},
+            {"name": "Cookie", "value": "openid=137700727749128; acctype=qc; appid=1112451898; access_token=ABCDEF123456; verifysession=VS"}
+          ]
+        }
+      }
+    ]
+  }
+}
+"""
+
+private const val HAR_LOGIN_COOKIE_ARRAY = """
+{
+  "log": {
+    "entries": [
+      {
+        "request": {
+          "url": "https://comm.ams.game.qq.com/ide/?serviceId=95&method=center.user.game.list",
+          "headers": [{"name": "Host", "value": "comm.ams.game.qq.com"}],
+          "cookies": [
+            {"name": "openid", "value": "137700727749128"},
+            {"name": "acctype", "value": "qc"},
+            {"name": "appid", "value": "1112451898"},
+            {"name": "access_token", "value": "ABCDEF123456"}
+          ]
+        }
+      }
+    ]
+  }
+}
+"""
+
+private const val HAR_LOGIN_QUERY = """
+{
+  "log": {
+    "entries": [
+      {
+        "request": {
+          "url": "https://comm.ams.game.qq.com/ide/?openid=137700727749128&acctype=qc&appid=1112451898&access_token=ABCDEF123456",
+          "headers": []
+        }
+      }
+    ]
+  }
+}
+"""
+
+private const val HAR_LOGIN_WECHAT = """
+{
+  "log": {
+    "entries": [
+      {
+        "request": {
+          "url": "https://comm.ams.game.qq.com/ide/?serviceId=95&method=center.user.game.list",
+          "headers": [
+            {"name": "Cookie", "value": "openid=oWeChatOpenId; acctype=mini; appid=wx1234567890; ieg_ams_session_token=SESSION-TOKEN"}
+          ]
         }
       }
     ]

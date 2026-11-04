@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nzd.antigravitypanel.data.repo.AccountProfile
+import com.nzd.antigravitypanel.ui.component.TopBarGlassCapsuleSurface
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -66,65 +68,120 @@ private const val RIPPLE_GROW_DURATION = 300
 private const val RIPPLE_FADE_IN_DURATION = 60
 private const val RIPPLE_FADE_OUT_DURATION = 180
 
+/** 未登录时的占位文案：第一行（昵称位）和第二行（分区位）。 */
+private const val LOGGED_OUT_TITLE = "账号未登录"
+private const val LOGGED_OUT_HINT = "轻触这里进入登录引导流程"
+
+/** 未登录红点。8dp 是 Material 小号 badge 的口径，再大就会盖住头像。 */
+private val LOGIN_DOT_SIZE = 8.dp
+
 /**
  * 概览页顶栏左侧的账号胶囊：圆形头像 + 昵称 + 分区，整块可点。
  *
  * 数据源见 [AccountProfile] —— 头像和昵称只存在于 `center.game.detail` 的
  * `loginUserDetail` 里，是由 [com.nzd.antigravitypanel.data.repo.OverviewRepository] 顺手捞出来的。
  *
+ * **没登录也照样摆**（[profile] 传 null）：开关默认开着，首屏进来左侧空一块的话，
+ * 用户既看不出这里本来该有东西，也找不到登录入口 —— 而登录正是这个 app 的第一件事。
+ * 未登录时头像位是灰色人像兜底，昵称位写 [LOGGED_OUT_TITLE]，分区位换成
+ * [LOGGED_OUT_HINT] 指向点击动作。
+ *
  * @param profile 头像 + 昵称（[AccountProfile.nickname] 拿不到时会退到 openid）。
- *   调用方负责先比对过 `openid` 跟当前凭证一致。
+ *   调用方负责先比对过 `openid` 跟当前凭证一致。**null = 未登录**。
  * @param partition 分区展示名（QQ 区 / 微信区），见
  *   [com.nzd.antigravitypanel.data.credential.partitionLabelOf]。空串表示不知道，就只显示一行。
- * @param onClick 点整块区域，调用方一般是弹出「账号详细信息」。
+ * @param onClick 点整块区域，调用方一般是弹出「账号详细信息」（未登录时先弹获取引导）。
+ * @param showLoginDot 右上角那颗红点。是否显示由调用方定（开关开着且没登录），
+ *   登录成功后自然消失 —— 这里不自己读 cookie，免得两处判据打架。
+ *
+ * ⚠️ 这颗胶囊的**玻璃底跟着顶栏右侧按钮一起淡入淡出**（[TopBarGlassCapsuleSurface]）。
+ * 所以它必须被摆在 `BlurredBar` 的 `startGlass` 槽位（宿主 AppContent 的 RootPage），
+ * 顶栏的 `navigationIcon` 里只留一个同高的占位 —— 原因见 `TopBarGlassLayer` 的注释。
  */
 @Composable
 fun AccountTopBarChip(
-    profile: AccountProfile,
+    profile: AccountProfile?,
     partition: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showLoginDot: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    Row(
-        modifier = modifier
-            // 裁切必须在最外层：水波纹画以前的那层 graphicsLayer 会被它的形状裁到，
-            // 不先裁的话那圈扩散圆会长成一个圆角矩形而不是胶囊
-            .clip(CHIP_SHAPE)
-            .clickable(
-                interactionSource = interactionSource,
-                // ⚠️ 用 Miuix 主题给的那套（LocalIndication），和顶栏的「每日首胜宝箱」
-                // 是同一个 —— 手指一按下立刻整块泛起一层淡色，这正是"轻触就有反馈"的来源。
-                // 别传 null：自己另画一层高亮代替不了它（见 [capsuleRipple] 的说明）。
-                indication = LocalIndication.current,
-                onClick = onClick,
-            )
-            .capsuleRipple(interactionSource)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AccountAvatar(url = profile.avatarUrl)
-        Spacer(modifier = Modifier.width(9.dp))
-        Column(modifier = Modifier.widthIn(max = CHIP_TEXT_MAX_WIDTH)) {
-            Text(
-                // 常态是昵称。服务端偶尔只给头像不给名字时退回 openid ——
-                // 顶栏留一行空白比显示一串数字更让人以为坏了
-                text = profile.nickname.ifBlank { profile.openid.ifBlank { "未知玩家" } },
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (partition.isNotBlank()) {
-                Text(
-                    text = partition,
-                    fontSize = 11.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    // 红点在胶囊**外面**那一层：Row 带 clip，画在里面的东西超出去就被裁掉。
+    // Box 本身不加 clip，只把点击和水波纹留给里面的 Row。
+    Box(modifier = modifier) {
+        // 玻璃底和顶栏右侧那几颗按钮同源（同一条滚动进度、同一套材质/阴影）：
+        // 页面停在顶部时它是透明的，内容一开始滚、或者手指在顶部往下拉，才随弹簧淡入。
+        // ⚠️ 这一颗**必须画在 BlurredBar 那层不被裁的 overlay 上**（见 AppContent 的
+        // RootPage → startGlass）：顶栏自带 clipToBounds，阴影溢出到 42dp 之外会被切成直边。
+        TopBarGlassCapsuleSurface {
+            Row(
+                modifier = Modifier
+                    // 裁切必须在最外层：水波纹画以前的那层 graphicsLayer 会被它的形状裁到，
+                    // 不先裁的话那圈扩散圆会长成一个圆角矩形而不是胶囊
+                    .clip(CHIP_SHAPE)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        // ⚠️ 用 Miuix 主题给的那套（LocalIndication），和顶栏的「每日首胜宝箱」
+                        // 是同一个 —— 手指一按下立刻整块泛起一层淡色，这正是"轻触就有反馈"的来源。
+                        // 别传 null：自己另画一层高亮代替不了它（见 [capsuleRipple] 的说明）。
+                        indication = LocalIndication.current,
+                        onClick = onClick,
+                    )
+                    .capsuleRipple(interactionSource)
+                    // 垂直 6dp：头像 30dp ⇒ 胶囊高 42dp，和右侧那几颗玻璃按钮**等高**。
+                    // 等高不是强迫症：两侧一起淡入时，高度差 2dp 会被看成"左边那颗没对齐"。
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AccountAvatar(url = profile?.avatarUrl.orEmpty())
+                Spacer(modifier = Modifier.width(9.dp))
+                Column(modifier = Modifier.widthIn(max = CHIP_TEXT_MAX_WIDTH)) {
+                    Text(
+                        // 常态是昵称。服务端偶尔只给头像不给名字时退回 openid ——
+                        // 顶栏留一行空白比显示一串数字更让人以为坏了
+                        text = profile?.let {
+                            it.nickname.ifBlank { it.openid.ifBlank { "未知玩家" } }
+                        } ?: LOGGED_OUT_TITLE,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    when {
+                        profile == null -> Text(
+                            text = LOGGED_OUT_HINT,
+                            fontSize = 11.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+
+                        partition.isNotBlank() -> Text(
+                            text = partition,
+                            fontSize = 11.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
+        }
+
+        // 贴在胶囊的右上角内侧：胶囊是半圆端（圆角 = 高的一半），正顶着角放会落到
+        // 圆角外面那块透明区域上，看着像飘在空中的一颗点。往内收 8dp / 下移 3dp 正好
+        // 落在圆角内切的位置，既有"角标"的意思又整个圆都可见。
+        if (showLoginDot) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-8).dp, y = 3.dp)
+                    .size(LOGIN_DOT_SIZE)
+                    .clip(CircleShape)
+                    .background(MiuixTheme.colorScheme.error),
+            )
         }
     }
 }

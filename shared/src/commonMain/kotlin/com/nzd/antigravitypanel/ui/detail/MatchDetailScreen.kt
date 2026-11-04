@@ -53,6 +53,7 @@ import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
 import com.nzd.antigravitypanel.data.remote.dto.PartitionDetailDto
 import com.nzd.antigravitypanel.data.remote.dto.PlayerDetailDto
 import com.nzd.antigravitypanel.data.remote.dto.nicknameDecoded
+import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
 import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.domain.ATTACK_TIER_MIN_COIN
 import com.nzd.antigravitypanel.domain.CompositeScoreBreakdown
@@ -82,6 +83,7 @@ import com.nzd.antigravitypanel.ui.format.formatDateShort
 import com.nzd.antigravitypanel.ui.format.formatDecimal
 import com.nzd.antigravitypanel.ui.format.formatDuration
 import com.nzd.antigravitypanel.ui.format.formatScore
+import com.nzd.antigravitypanel.ui.format.formatScoreWithUnit
 import com.nzd.antigravitypanel.ui.format.formatTimeShort
 import com.nzd.antigravitypanel.util.percentDecoded
 import kotlin.math.round
@@ -158,6 +160,9 @@ fun MatchDetailScreen(
     LaunchedEffect(roomId) { viewModel.load(roomId) }
     DisposableEffect(viewModel) { onDispose { viewModel.close() } }
     val compositeScoreEnabled by userSettings.compositeScore.collectAsState()
+    // 积分单位：详情页这一档（默认完整数字，见 ScoreUnitTarget.DEFAULT）
+    val scoreWanTargets by userSettings.scoreWanTargets.collectAsState()
+    val scoreUseWan = ScoreUnitTarget.MATCH_DETAIL in scoreWanTargets
     /** 长按「综合分」那一格要摆出来的算式。null = 不弹。 */
     var explainedScore by remember { mutableStateOf<CompositeScoreBreakdown?>(null) }
 
@@ -295,6 +300,7 @@ fun MatchDetailScreen(
                                             it.huntingDetails?.damageTotalOnBoss ?: 0L
                                         },
                                         showExtra = showExtra,
+                                        scoreUseWan = scoreUseWan,
                                     )
                                 }
                             }
@@ -333,6 +339,7 @@ fun MatchDetailScreen(
                                     cardHeight = cardHeight,
                                     // 分均经济要拿金币除以时长，时长是**整局**的，不是某个人的
                                     durationSec = match?.duration ?: 0,
+                                    scoreUseWan = scoreUseWan,
                                     // 关掉开关就退回「经济转化」，综合分连算式一起不给
                                     composite = if (compositeScoreEnabled) {
                                         breakdowns.getOrNull(index)
@@ -371,6 +378,8 @@ private fun MatchOverviewCard(
     detailBossDamage: Long,
     teamBossDamage: Long,
     showExtra: Boolean,
+    /** 积分显示成万还是完整数字（设置里的「积分显示单位」）。 */
+    scoreUseWan: Boolean,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -386,6 +395,7 @@ private fun MatchOverviewCard(
                     bossDamage = detailBossDamage,
                     teamBossDamage = teamBossDamage,
                     showExtra = showExtra,
+                    scoreUseWan = scoreUseWan,
                 )
             },
         ) {
@@ -481,10 +491,12 @@ private fun OverviewRightColumn(
     bossDamage: Long,
     teamBossDamage: Long,
     showExtra: Boolean,
+    /** 积分显示成万还是完整数字（设置里的「积分显示单位」）。 */
+    scoreUseWan: Boolean,
 ) {
     Column(horizontalAlignment = Alignment.End) {
         Text(
-            text = formatScore(match?.score ?: 0L),
+            text = formatScoreWithUnit(match?.score ?: 0L, scoreUseWan),
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
             color = MiuixTheme.colorScheme.onSurface,
@@ -600,6 +612,8 @@ private fun PlayerCard(
     isSelf: Boolean,
     showExtra: Boolean,
     durationSec: Int,
+    /** 积分那一格显示成万还是完整数字。 */
+    scoreUseWan: Boolean,
     /**
      * 这一格的综合分算式。null = 开关关着，那一格照旧显示「经济转化」。
      */
@@ -655,6 +669,7 @@ private fun PlayerCard(
                             player = player,
                             durationSec = durationSec,
                             showExtra = showExtra,
+                            scoreUseWan = scoreUseWan,
                             composite = composite,
                             onExplainComposite = onExplainComposite,
                             // 综合分那一格要接管点击事件（长按弹算式），
@@ -745,6 +760,7 @@ private fun StatGrid(
     player: PlayerDetailDto,
     durationSec: Int,
     showExtra: Boolean,
+    scoreUseWan: Boolean,
     composite: CompositeScoreBreakdown?,
     onExplainComposite: () -> Unit,
     onCellClick: () -> Unit,
@@ -755,7 +771,7 @@ private fun StatGrid(
     val mobs = hunting?.damageTotalOnMobs ?: 0L
 
     val items = buildList {
-        add(StatItem(formatScore(player.baseDetail?.iScore ?: 0L), "积分"))
+        add(StatItem(formatScoreWithUnit(player.baseDetail?.iScore ?: 0L, scoreUseWan), "积分"))
         add(StatItem((player.baseDetail?.iKills ?: 0).toString(), "击杀"))
         if (showExtra) {
             add(StatItem(formatCompact(boss), "Boss 伤害", boss > 0))

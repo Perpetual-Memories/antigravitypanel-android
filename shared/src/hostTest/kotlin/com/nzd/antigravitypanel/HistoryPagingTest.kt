@@ -73,6 +73,7 @@ class HistoryPagingTest {
      */
     private class FakeBossStatDao : MatchBossStatDao {
         override suspend fun upsert(item: MatchBossStatEntity) = Unit
+        override suspend fun upsertAll(items: List<MatchBossStatEntity>) = Unit
         override fun observeAll(): Flow<List<MatchBossStatEntity>> = emptyFlow()
         override suspend fun all(): List<MatchBossStatEntity> = emptyList()
         override suspend fun knownRoomIds(): List<String> = emptyList()

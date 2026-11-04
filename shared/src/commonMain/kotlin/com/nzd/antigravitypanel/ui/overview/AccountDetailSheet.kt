@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.ui.component.copyToClipboard
+import com.nzd.antigravitypanel.ui.component.rememberTextFilePicker
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -33,6 +34,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Import
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.icon.extended.Scan
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -56,6 +58,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * @param onScanClick 右上角扫码按钮：扫 PC 端给出的二维码来登录。
  *   放在标题右侧（[OverlayBottomSheet] 的 `endAction`）而不是内容里——
  *   它是"换一种方式填这个框"，和这个弹层平级，摆进内容区会像是表单的一栏。
+ * @param onImportHar 左上角导入按钮：选一个 `.har` 抓包文件，拿到的是**文件内容**（UTF-8 文本），
+ *   由调用方去扫凭证、保存。和签到那两个弹层（`CredentialSheet`）一样，扫描逻辑不放在
+ *   UI 层——认不出来是哪种失败，只有那边说得清。
  */
 @Composable
 fun AccountDetailSheet(
@@ -66,12 +71,16 @@ fun AccountDetailSheet(
     onSave: (String) -> Unit,
     onLogout: () -> Unit,
     onScanClick: () -> Unit,
+    onImportHar: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val cookieState = rememberTextFieldState()
     val openIdState = rememberTextFieldState()
     val input = remember { derivedStateOf { cookieState.text.toString().trim() } }.value
     val loggedIn = cookie != null
+    val pickHar = rememberTextFilePicker { text ->
+        if (text != null) onImportHar(text)
+    }
 
     // 两个框都只跟着已保存的凭证走：退出登录后 raw / openid 变空，
     // 这里会顺势把两个框清掉，逼用户重新粘一条。
@@ -94,6 +103,18 @@ fun AccountDetailSheet(
         show = show,
         title = "账号详细信息",
         allowDismiss = !saving,
+        // 左上角「导入抓包」。和下面那个输入框是同一件事的两种填法：
+        // 抓包本来就是获取 Cookie 的正路，让用户从几百字符里手抄一遍纯属折磨。
+        // 只摆一个图标（和右侧扫码对称），弹层标题栏就那么高，塞文字按钮会把标题挤掉。
+        startAction = {
+            IconButton(onClick = { pickHar() }, enabled = !saving) {
+                Icon(
+                    imageVector = MiuixIcons.Import,
+                    contentDescription = "从 HAR 文件导入 Cookie",
+                    tint = MiuixTheme.colorScheme.onSurface,
+                )
+            }
+        },
         // 扫码登录的入口。登录态和未登录态都给：扫码本来就是"没凭证时最快的上手方式"，
         // 只在登出状态才显示的话，想换号登录的人反而找不到它
         endAction = {

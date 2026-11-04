@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.db.MatchEntity
 import com.nzd.antigravitypanel.data.remote.dto.GameConfigDto
+import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
+import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.domain.GameMode
 import com.nzd.antigravitypanel.domain.MatchTag
 import com.nzd.antigravitypanel.domain.difficultyNameOf
@@ -39,7 +41,7 @@ import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.ui.component.CardCornerRadius
 import com.nzd.antigravitypanel.ui.format.formatDateTimeShort
 import com.nzd.antigravitypanel.ui.format.formatDuration
-import com.nzd.antigravitypanel.ui.format.formatScore
+import com.nzd.antigravitypanel.ui.format.formatScoreWithUnit
 import kotlinx.coroutines.flow.distinctUntilChanged
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -74,6 +76,11 @@ fun HistoryScreen(
     config: GameConfigDto,
     pinned: Set<String>,
     favorite: Set<String>,
+    /**
+     * 设置对象（不是读好的值）：这一页在 pager 的 `remember` 闭包里，
+     * 传值进来会钉死在第一帧。积分单位要能随设置立刻变。
+     */
+    userSettings: UserSettings,
     onOpenDetail: (String) -> Unit,
     modifier: Modifier = Modifier,
     /** Scaffold 给的顶栏 / 底栏高度，只进 contentPadding，不裁掉内容区域。 */
@@ -84,6 +91,9 @@ fun HistoryScreen(
     val filter by viewModel.filter.collectAsState()
     // 实力局 / 带飞局。没有 Boss 口径缓存的局不在 map 里，那一行就不画角标
     val tags by viewModel.tags.collectAsState()
+    // 行尾那个积分要不要折成万（设置 → 外观 → 积分显示单位）
+    val scoreWanTargets by userSettings.scoreWanTargets.collectAsState()
+    val scoreUseWan = ScoreUnitTarget.HISTORY in scoreWanTargets
     val listState = rememberLazyListState()
     var longPressed by remember { mutableStateOf<MatchEntity?>(null) }
 
@@ -128,6 +138,7 @@ fun HistoryScreen(
                 match = match,
                 config = config,
                 tag = tags[match.roomId],
+                scoreUseWan = scoreUseWan,
                 pinned = match.roomId in pinned,
                 favorite = match.roomId in favorite,
                 // 菜单挂在这一行内部：弹窗的锚点取的是它所在的那块布局，
@@ -181,6 +192,8 @@ private fun MatchRow(
     match: MatchEntity,
     config: GameConfigDto,
     tag: MatchTag?,
+    /** 积分显示成万还是完整数字（设置里的「积分显示单位」）。 */
+    scoreUseWan: Boolean,
     pinned: Boolean,
     favorite: Boolean,
     menuExpanded: Boolean,
@@ -330,7 +343,7 @@ private fun MatchRow(
                 )
                 Box(modifier = Modifier.weight(1f))
                 Text(
-                    text = formatScore(match.score),
+                    text = formatScoreWithUnit(match.score, scoreUseWan),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MiuixTheme.colorScheme.onSurface,

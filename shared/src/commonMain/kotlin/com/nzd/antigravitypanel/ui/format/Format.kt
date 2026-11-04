@@ -64,6 +64,15 @@ fun formatCompact(value: Long): String {
     return "${trimDecimal(yi)}亿"
 }
 
+/**
+ * 积分按用户设置的**单位偏好**显示：完整数字（千分位）或折成万。
+ *
+ * 走 [formatCompact] 而不是自己再写一套：它已经处理了"不足一万原样显示"和
+ * "过亿换亿"，和伤害那几列的口径一致 —— 同一屏里两个数用两套折算法会很怪。
+ */
+fun formatScoreWithUnit(value: Long, useWan: Boolean): String =
+    if (useWan) formatCompact(value) else formatScore(value)
+
 private fun trimDecimal(value: Double): String {
     val rounded = (value * 10).toLong() / 10.0
     return if (rounded % 1.0 == 0.0) rounded.toLong().toString() else rounded.toString()
