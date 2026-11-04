@@ -235,10 +235,8 @@ class SupercoreViewModel(
         }
     }
 
-    /** 手动「立即领取并抽奖」。忽略自动开关。 */
-    fun runNow() {
-        refresh(autoRun = true)
-    }
+    // 「立即领取并抽奖」那颗按钮已经删了，手动入口改成**下拉签到二级页**
+    // （那边的 onRefresh 直接调 refresh(autoRun = true)），所以这里不再留 runNow()。
 
     /**
      * 拉官方「领奖记录」。切到记录页时调用；每次打开都重新拉，避免看到旧列表。

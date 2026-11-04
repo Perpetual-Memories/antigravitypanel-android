@@ -89,7 +89,9 @@ private val LOGIN_DOT_SIZE = 8.dp
  * @param profile 头像 + 昵称（[AccountProfile.nickname] 拿不到时会退到 openid）。
  *   调用方负责先比对过 `openid` 跟当前凭证一致。**null = 未登录**。
  * @param partition 分区展示名（QQ 区 / 微信区），见
- *   [com.nzd.antigravitypanel.data.credential.partitionLabelOf]。空串表示不知道，就只显示一行。
+ *   [com.nzd.antigravitypanel.data.credential.partitionLabelOf]。空串表示不知道，就不占这一行。
+ * @param level 赛季等级（`center.user.stats` 里的 `seasonLevel`）。0 = 服务端没给，
+ *   那时第二行只写分区，不要摆一个 `LV.0` 上去。
  * @param onClick 点整块区域，调用方一般是弹出「账号详细信息」（未登录时先弹获取引导）。
  * @param showLoginDot 右上角那颗红点。是否显示由调用方定（开关开着且没登录），
  *   登录成功后自然消失 —— 这里不自己读 cookie，免得两处判据打架。
@@ -104,6 +106,8 @@ fun AccountTopBarChip(
     partition: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 赛季等级。0 = 不知道（没登录 / 服务端没下发），第二行只写分区。 */
+    level: Int = 0,
     showLoginDot: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -149,6 +153,12 @@ fun AccountTopBarChip(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // 第二行：`LV.148 QQ区`。等级在前、分区在后 —— PC 端账号卡是这么排的；
+                    // 等级拿不到就只留分区，别写 `LV.0`（那是"没读到"，不是"零级"）。
+                    val subtitle = buildList {
+                        if (level > 0) add("LV.$level")
+                        if (partition.isNotBlank()) add(partition)
+                    }.joinToString(" ")
                     when {
                         profile == null -> Text(
                             text = LOGGED_OUT_HINT,
@@ -158,8 +168,8 @@ fun AccountTopBarChip(
                             overflow = TextOverflow.Ellipsis,
                         )
 
-                        partition.isNotBlank() -> Text(
-                            text = partition,
+                        subtitle.isNotBlank() -> Text(
+                            text = subtitle,
                             fontSize = 11.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             maxLines = 1,

@@ -18,7 +18,27 @@ data class UserStatsDto(
     val huntGameCount: Int = 0,
     @Serializable(with = LenientInt::class)
     val timeHuntGameCount: Int = 0,
-)
+    /**
+     * 赛季等级。PC 端 2.0.0 的账号面板显示的就是它（`LV.148`）。
+     *
+     * 服务端字段名在 PC 那边只露出过 `seasonLevel` / `seasonStartLevel` / `seasonEndLevel`
+     * 三个（Rust 侧的结算结构里用的是后两个），所以这里三个都收、按优先级取第一个 >0 的：
+     * 字段不存在时宽松解析会落 0，不会炸；真名换了也不会整块消失。
+     */
+    @Serializable(with = LenientInt::class)
+    val seasonLevel: Int = 0,
+    @Serializable(with = LenientInt::class)
+    val seasonEndLevel: Int = 0,
+    @Serializable(with = LenientInt::class)
+    val seasonStartLevel: Int = 0,
+) {
+    /** 展示用的等级。零表示服务端没给（还没登录 / 老接口），UI 那边整段不摆。 */
+    val level: Int
+        get() = seasonLevel.takeIf { it > 0 }
+            ?: seasonEndLevel.takeIf { it > 0 }
+            ?: seasonStartLevel.takeIf { it > 0 }
+            ?: 0
+}
 
 /**
  * `center.user.map.stats`：地图维度统计。

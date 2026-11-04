@@ -38,6 +38,24 @@ class IdeResponseTest {
         val stats = IdeJson.decodeFromJsonElement<UserStatsDto>(data)
         assertEquals(75008L, stats.playtime)
         assertEquals(1912, stats.huntGameCount)
+        // 2026-09 的抓包里还没有赛季等级字段：解析成 0，UI 那边就不摆等级
+        assertEquals(0, stats.level)
+    }
+
+    @Test
+    fun 赛季等级按三个候选字段依次认() {
+        fun levelOf(json: String): Int =
+            IdeJson.decodeFromString<UserStatsDto>(json).level
+
+        // 主字段
+        assertEquals(148, levelOf("""{"seasonLevel":148}"""))
+        // 只给结算用的那个名字时也能认
+        assertEquals(147, levelOf("""{"seasonEndLevel":147}"""))
+        assertEquals(146, levelOf("""{"seasonStartLevel":146}"""))
+        // 同时存在时优先 seasonLevel
+        assertEquals(148, levelOf("""{"seasonLevel":148,"seasonEndLevel":147}"""))
+        // 三个都没有 → 0（"不知道"，不是 0 级）
+        assertEquals(0, levelOf("""{"playtime":60}"""))
     }
 
     @Test

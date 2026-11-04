@@ -76,7 +76,6 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 fun SupercoreSection(
     state: SupercoreUiState,
     autoRun: Boolean,
-    onRunNow: () -> Unit,
     onSaveCredential: (String) -> Unit,
     onImportHar: (String) -> Unit,
     onClearCredential: () -> Unit,
@@ -302,7 +301,6 @@ fun SupercoreSection(
         onClearCredential = onClearCredential,
         onSelectRole = onSelectRole,
         onAutoRunChange = onAutoRunChange,
-        onRunNow = onRunNow,
         onLoadRecords = onLoadRecords,
     )
 }
@@ -352,7 +350,6 @@ private fun SupercoreSheet(
     onClearCredential: () -> Unit,
     onSelectRole: (String) -> Unit,
     onAutoRunChange: (Boolean) -> Unit,
-    onRunNow: () -> Unit,
     onLoadRecords: () -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
@@ -416,7 +413,6 @@ private fun SupercoreSheet(
                             onSaveCredential = onSaveCredential,
                             onSelectRole = onSelectRole,
                             onAutoRunChange = onAutoRunChange,
-                            onRunNow = onRunNow,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
@@ -521,7 +517,6 @@ private fun SupercoreSettingsPane(
     onSaveCredential: (String) -> Unit,
     onSelectRole: (String) -> Unit,
     onAutoRunChange: (Boolean) -> Unit,
-    onRunNow: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val credentialState = rememberTextFieldState()
@@ -632,14 +627,8 @@ private fun SupercoreSettingsPane(
             )
         }
 
-        // 立即执行跟着开关走：它和"自动"是同一组动作，不是底栏里的配置
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = onRunNow,
-            enabled = state.configured && !state.needsTeamConfirm && !state.running && !state.loading,
-        ) {
-            Text(if (state.running) "正在领取并抽奖…" else "立即领取并抽奖")
-        }
+        // 这里**不再摆**「立即领取并抽奖」：手动跑一次改成下拉签到二级页
+        // （那边 onRefresh 里带 autoRun = true）。弹层只负责配置，不再兼手动入口。
     }
 }
 

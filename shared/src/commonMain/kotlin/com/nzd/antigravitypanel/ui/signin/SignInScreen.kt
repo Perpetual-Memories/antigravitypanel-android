@@ -148,10 +148,13 @@ fun SignInScreen(
                             autoSign = autoSign,
                             autoClaimTask = autoClaimTask,
                         )
-                        // 下面三块是另三套凭证，用户没要求它们跟着下拉一起领，保持只刷状态
+                        // 下面三块是另三套凭证，用户没要求它们跟着下拉一起领，保持只刷状态。
                         qqViewModel.refresh(autoClaim = false)
                         xinyueViewModel.refresh(autoClaim = false)
-                        supercoreViewModel.refresh(autoRun = false)
+                        // ⚠️ 超核这里是唯一例外：卡片和弹层里那颗「立即领取并抽奖」已经删掉，
+                        // **下拉就是手动跑一次**（签到 + 领积分 + 抽奖），所以这里必须传 true。
+                        // 自动开关只决定"冷启动要不要自动跑"，不影响用户主动下拉。
+                        supercoreViewModel.refresh(autoRun = true)
                     },
                     pullToRefreshState = pullToRefreshState,
                     topAppBarScrollBehavior = scrollBehavior,
@@ -261,7 +264,6 @@ fun SignInScreen(
                             SupercoreSection(
                                 state = supercoreState,
                                 autoRun = autoSupercore,
-                                onRunNow = supercoreViewModel::runNow,
                                 onSaveCredential = { raw ->
                                     scope.launch { supercoreViewModel.saveCredential(raw) }
                                 },
