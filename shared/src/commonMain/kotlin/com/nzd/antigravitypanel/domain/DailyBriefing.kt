@@ -72,6 +72,9 @@ data class BriefingModeCount(
  * @param matches 当天的对局，**按时间升序**（时间线从上往下读就是发生顺序）。
  * @param activeHour 场次最多的那个小时（0~23）。没对局时为 null。
  * @param playtimeSec 当天所有对局 `iDuration` 之和。
+ * @param hourCounts 24 个整点各开了几局。活跃时段弹层里的柱状图直接用它。
+ * @param mvpCount 拿过 MVP（`Rank == 1`）的局数。
+ * @param longestWinStreak 当天最长连胜（按开赛时间顺序，中途退出不打断，输了才断）。
  */
 data class DailyBriefing(
     val dayStartSec: Long,
@@ -82,8 +85,14 @@ data class DailyBriefing(
     val playtimeSec: Int,
     val activeHour: Int?,
     val modeCounts: List<BriefingModeCount>,
+    val hourCounts: List<Int>,
+    val mvpCount: Int,
+    val longestWinStreak: Int,
 ) {
     val matchCount: Int get() = matches.size
+
+    /** 分出了胜负的局数。通关率的分母用它 —— 中途退出的局既不是通关也不是失败。 */
+    val finishedCount: Int get() = winCount + lossCount
 
     /** 场次最多的模式。并列时按 [COUNTABLE_MODES] 的顺序取第一个；一局没有则为 null。 */
     val topMode: BriefingModeCount?
@@ -123,12 +132,26 @@ fun buildDailyBriefing(
     var win = 0
     var loss = 0
     var unfinished = 0
+    var mvp = 0
+    var streak = 0
+    var longestStreak = 0
     val modeCounts = COUNTABLE_MODES.associateWith { 0 }.toMutableMap()
 
     for (match in dayMatches) {
         if (match.duration > 0) playtime += match.duration
         hourHistogram[hourOf(match.eventTimeSec)]++
         modeOf(match.mapId).let { mode -> modeCounts[mode] = (modeCounts[mode] ?: 0) + 1 }
+        if (match.finished && match.rankValue == 1) mvp++
+        // 连胜：按升序扫一遍，赢 +1、输清零；中途退出的局既不算赢也不算输，
+        // **不打断**连胜（它是"没打完"，不是"输了"）。
+        if (match.finished) {
+            if (match.isWin) {
+                streak++
+                if (streak > longestStreak) longestStreak = streak
+            } else {
+                streak = 0
+            }
+        }
         when {
             !match.finished -> unfinished++
             match.isWin -> win++
@@ -150,6 +173,9 @@ fun buildDailyBriefing(
         playtimeSec = playtime,
         activeHour = activeHour,
         modeCounts = COUNTABLE_MODES.map { BriefingModeCount(it, modeCounts[it] ?: 0) },
+        hourCounts = hourHistogram.toList(),
+        mvpCount = mvp,
+        longestWinStreak = longestStreak,
     )
 }
 

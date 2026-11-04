@@ -41,8 +41,10 @@ android {
         // ⚠️ 0.2.4 已于 2026-11-04 发布（tag v0.2.4 / code 22），本地从 0.2.5 起。
         // 0.2.5：23（每日简报：7 天日期条 + 四张统计卡 + 对局时间线）；
         //        24（去掉简报页刷新按钮 / 日期条加宽防省略号 / 修整页全 0：
-        //            不再按 openid 筛对局 —— 凭证的 openid 与战绩的 vOpenID 不同口径）。
-        versionCode = 24
+        //            不再按 openid 筛对局 —— 凭证的 openid 与战绩的 vOpenID 不同口径）；
+        //        25（时间轴连成一条线；模式分布卡加间隔点；四张卡各自可点：
+        //            场次 / 活跃时段 / 模式分布开底部弹层，游戏时长弹 Snackbar）。
+        versionCode = 25
         versionName = "0.2.5"
     }
     // 发布签名：凭据放 keystore.properties（和 *.jks 一样在 .gitignore 里）。

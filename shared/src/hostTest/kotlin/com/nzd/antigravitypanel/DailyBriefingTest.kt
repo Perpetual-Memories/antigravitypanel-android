@@ -79,6 +79,41 @@ class DailyBriefingTest {
         assertEquals(listOf(GameMode.HUNT, GameMode.TOWER, GameMode.TIME_HUNT), briefing.modeCounts.map { it.mode })
         assertEquals(listOf(3, 1, 0), briefing.modeCounts.map { it.count })
         assertEquals(GameMode.HUNT, briefing.topMode?.mode)
+
+        // 24 格柱状图：6 点两场，8 点 / 23 点各一场，其余为 0
+        assertEquals(24, briefing.hourCounts.size)
+        assertEquals(2, briefing.hourCounts[6])
+        assertEquals(1, briefing.hourCounts[8])
+        assertEquals(1, briefing.hourCounts[23])
+        assertEquals(0, briefing.hourCounts[7])
+
+        // 胜胜负胜 ⇒ 最长连胜 2
+        assertEquals(2, briefing.longestWinStreak)
+        assertEquals(0, briefing.mvpCount)
+        assertEquals(4, briefing.finishedCount)
+    }
+
+    @Test
+    fun MVP与最长连胜按开赛顺序算() {
+        val day = parseServerTime("2026-11-04 00:00:00")!!
+        val briefing = buildDailyBriefing(
+            listOf(
+                match("a", "2026-11-04 08:00:00", mapId = 17, win = true, rank = 1),
+                match("b", "2026-11-04 09:00:00", mapId = 17, win = true, rank = 2),
+                // 中途退出：既不算赢也不算输，**不打断**连胜
+                match("c", "2026-11-04 10:00:00", mapId = 17, win = false, finished = false),
+                match("d", "2026-11-04 11:00:00", mapId = 17, win = true, rank = 1),
+                match("e", "2026-11-04 12:00:00", mapId = 17, win = false),
+            ),
+            day,
+        )
+        assertEquals(2, briefing.mvpCount)
+        // 赢赢（退出）赢 ⇒ 3 连胜，随后输了一局
+        assertEquals(3, briefing.longestWinStreak)
+        assertEquals(3, briefing.winCount)
+        assertEquals(1, briefing.lossCount)
+        assertEquals(1, briefing.unfinishedCount)
+        assertEquals(4, briefing.finishedCount)
     }
 
     @Test
@@ -205,6 +240,7 @@ class DailyBriefingTest {
         win: Boolean = true,
         finished: Boolean = true,
         openId: String = "",
+        rank: Int = 0,
     ): MatchEntity {
         val sec = assertNotNull(parseServerTime(eventTime), "测试数据里的时间必须能解析")
         return MatchEntity(
@@ -226,7 +262,7 @@ class DailyBriefingTest {
             kills = 0,
             deaths = 0,
             assists = 0,
-            rankValue = 0,
+            rankValue = rank,
             finished = finished,
             syncedAtSec = 0,
         )

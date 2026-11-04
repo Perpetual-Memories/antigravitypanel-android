@@ -1752,6 +1752,8 @@ private fun MainScreen(
 
                                 Tabs.BRIEFING -> DailyBriefingScreen(
                                     matchesFlow = historyViewModel.allMatches,
+                                    // 实力局 / 带飞局的标签和历史页同一份（都来自 Boss 详情缓存）
+                                    tagsFlow = historyViewModel.tags,
                                     config = gameConfig,
                                     onOpenDetail = { roomId -> onOpenMatchDetail(roomId) },
                                     insets = insets,
