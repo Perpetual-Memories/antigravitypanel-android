@@ -126,20 +126,17 @@ class DailyBriefingTest {
     }
 
     @Test
-    fun 换号后只算当前账号() {
+    fun 不按账号过滤() {
         val day = parseServerTime("2026-11-04 00:00:00")!!
         val matches = listOf(
             match("mine", "2026-11-04 10:00:00", mapId = 17, openId = "openid-a"),
-            match("other", "2026-11-04 11:00:00", mapId = 17, openId = "openid-b"),
-            // 早期导入的数据没有 openId，不能因为开了账号过滤就整批消失
+            // 微信区的凭证 openid 和战绩里的 vOpenID 不一定是同一个值；
+            // 早期导入的数据更是十六进制 / 十进制两套写法。判等会把整库筛空，所以不筛。
+            match("other-format", "2026-11-04 11:00:00", mapId = 17, openId = "openid-b"),
             match("legacy", "2026-11-04 12:00:00", mapId = 17, openId = ""),
         )
 
-        val briefing = buildDailyBriefing(matches, day, openId = "openid-a")
-        assertEquals(listOf("mine", "legacy"), briefing.matches.map { it.roomId })
-
-        // 没登录（openId = null）时不做过滤
-        assertEquals(3, buildDailyBriefing(matches, day, openId = null).matchCount)
+        assertEquals(3, buildDailyBriefing(matches, day).matchCount)
     }
 
     @Test

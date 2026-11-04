@@ -101,19 +101,20 @@ data class DailyBriefing(
  * 它没有胜负、没有 Boss 口径，混进来会让"场次"和"模式分布"两栏都读不懂。
  * 与地图分布页、概览的模式切换同一个口径。
  *
- * @param openId 当前账号。非空时只统计这个号的对局，**但保留 openId 为空的老数据** ——
- *   早期从 JSON 导入的对局没有写 openId，一刀切掉会让那批用户的简报凭空变空。
+ * ⚠️ **不按 openid 过滤**（0.2.5 第一版就是这么写的，表现是整页每天全 0）。
+ * 对局表里的 `vOpenID` 与凭证里的 `openid` **不保证是同一个值**（微信区的凭证走
+ * `ieg_ams_*`，openid 很可能不是游戏账号 id），拿它们判等会把整个库筛成空。
+ * 历史页同样不筛账号，这里跟它保持一致：设备上本来就只有自己的数据，
+ * 换号残留的对局也一直留在库里。
  */
 fun buildDailyBriefing(
     matches: List<MatchEntity>,
     dayStartSec: Long,
-    openId: String? = null,
 ): DailyBriefing {
     val dayEnd = dayStartSec + SECONDS_PER_DAY
     val dayMatches = matches.asSequence()
         .filter { it.eventTimeSec in dayStartSec until dayEnd }
         .filter { modeOf(it.mapId).countable }
-        .filter { openId.isNullOrBlank() || it.openId.isBlank() || it.openId == openId }
         .sortedBy { it.eventTimeSec }
         .toList()
 

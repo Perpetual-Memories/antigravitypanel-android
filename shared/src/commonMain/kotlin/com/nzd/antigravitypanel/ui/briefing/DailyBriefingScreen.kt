@@ -86,14 +86,12 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
  *
  * @param matchesFlow 本地全量对局。传 Flow 而不是 List：这个页面在 Pager 的
  *   内容 lambda 里，外面读好再传进来会钉在组合时那一帧（见 AppContent 里同款注释）。
- * @param openId 当前账号的 openid。null / 空串时不做账号过滤（离线导入的场景）。
  * @param insets 顶栏 + 悬浮底栏高度，只进 contentPadding。
  */
 @Composable
 fun DailyBriefingScreen(
     matchesFlow: StateFlow<List<MatchEntity>>,
     config: GameConfigDto,
-    openId: String?,
     onOpenDetail: (String) -> Unit,
     modifier: Modifier = Modifier,
     insets: PaddingValues = PaddingValues(0.dp),
@@ -108,8 +106,8 @@ fun DailyBriefingScreen(
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     val day = days.getOrNull(selectedIndex) ?: days.firstOrNull() ?: return
 
-    val briefing = remember(matches, day.startSec, openId) {
-        buildDailyBriefing(matches = matches, dayStartSec = day.startSec, openId = openId)
+    val briefing = remember(matches, day.startSec) {
+        buildDailyBriefing(matches = matches, dayStartSec = day.startSec)
     }
 
     val listState = rememberLazyListState()
@@ -133,6 +131,14 @@ fun DailyBriefingScreen(
                 tabs = days.map { it.label },
                 selectedTabIndex = selectedIndex,
                 onTabSelected = { selectedIndex = it },
+                // ⚠️ Miuix 的 TabRow 是**所有格子等宽**的，宽度只按 min/max 取，不会量文字。
+                // 默认 minWidth = 76dp，减去左右各 12dp 内边距只剩 52dp，
+                // 「10月29日」这种五个字（两个全角 + 数字）放不下 ⇒ 末尾出省略号。
+                // 给到 104dp 才有 80dp 的文字区，正常字号 / 轻微放大都不裁字；
+                // 七格总宽超过屏宽时组件自己横向滚动（和 PC 端的日期条一致）。
+                minWidth = 104.dp,
+                maxWidth = 104.dp,
+                itemSpacing = 6.dp,
             )
         }
 
@@ -146,10 +152,12 @@ fun DailyBriefingScreen(
                 config = config,
                 // 整库为空 ≠ 这一天没打：前者要么没登录、要么还没同步，
                 // 给同一句"这一天没有对局"会让人以为数据丢了。
+                // 顺手把本地总场次写出来 —— 排查"整页全 0"时这一句就能分清
+                // 是"库里没有"还是"这一天的筛选把它漏了"。
                 emptyHint = if (matches.isEmpty()) {
                     "还没有对局数据，先在概览页登录或导入数据"
                 } else {
-                    "这一天没有对局"
+                    "这一天没有对局（本地共 ${matches.size} 场）"
                 },
                 onOpenDetail = onOpenDetail,
             )

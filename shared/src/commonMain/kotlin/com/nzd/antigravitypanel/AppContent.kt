@@ -1706,18 +1706,9 @@ private fun MainScreen(
                                         }
                                     }
 
-                                    // 每日简报读的是本地库，而"今天"要靠一轮同步才齐。
-                                    // 刷新入口和概览页是同一个（refreshAll），
-                                    // 不要在这里单拉接口 —— 那会把凭证 / 签到 / 缓存的口径拆成两套。
-                                    Tabs.BRIEFING -> TopBarGlassChip {
-                                        IconButton(onClick = onRefresh) {
-                                            Icon(
-                                                imageVector = MiuixIcons.Refresh,
-                                                contentDescription = "刷新数据",
-                                                tint = MiuixTheme.colorScheme.onSurface,
-                                            )
-                                        }
-                                    }
+                                    // 每日简报**不要**刷新按钮：刷新是概览页的动作，
+                                    // 那边点一次就是整轮 refreshAll，别在每个数据页都摆一颗。
+                                    Tabs.BRIEFING -> Unit
                                 }
                             },
                         ) { insets ->
@@ -1762,9 +1753,6 @@ private fun MainScreen(
                                 Tabs.BRIEFING -> DailyBriefingScreen(
                                     matchesFlow = historyViewModel.allMatches,
                                     config = gameConfig,
-                                    // 换号后库里还留着上一个号的对局，按 openid 收一道；
-                                    // 没登录（离线导入）时传 null，不做账号过滤。
-                                    openId = cookie?.openid,
                                     onOpenDetail = { roomId -> onOpenMatchDetail(roomId) },
                                     insets = insets,
                                 )
