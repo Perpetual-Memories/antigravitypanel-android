@@ -78,6 +78,14 @@ data class OverviewUiState(
     val account: AccountProfile? = null,
 
     /**
+     * 赛季等级（顶栏胶囊第二行的 `LV.n`）。0 = 没取到，UI 不摆。
+     *
+     * 来源是 `center.mweapon.list` 的万象武器等级，**不是** `center.user.stats` ——
+     * 后者压根没有等级字段（2026-11-04 抓包核对过）。
+     */
+    val seasonLevel: Int = 0,
+
+    /**
      * 卡片上显示的是**上次缓存下来的状态**，这一轮的凭证还没被服务端确认。
      *
      * 冷启动时概览要先拿缓存把页面撑起来（否则会先空一拍），但那个"已识别"是上一次的结论，
@@ -155,8 +163,9 @@ class OverviewViewModel(
                     // 没凭证就拉不到机甲对局，留着上一次的数会让人以为今天打过
                     mechaTodayCount = null,
                     cookieVerifying = false,
-                    // 没凭证了就没有"当前账号"，名片必须跟着清
+                    // 没凭证了就没有"当前账号"，名片和等级必须跟着清
                     account = null,
+                    seasonLevel = 0,
                 )
                 scope.launch { persist(CookieStatus.MISSING) }
                 return
@@ -209,6 +218,9 @@ class OverviewViewModel(
                     // 取不到就留着上一份：换一次网络抖动就把顶栏的名片打空，
                     // 比"慢一点才更新"难受得多
                     account = snapshot.account ?: _state.value.account,
+                    // 等级同理：0 = 这一轮没读到（新号 / 接口挂了），别把已显示的抹掉
+                    seasonLevel = snapshot.seasonLevel.takeIf { it > 0 }
+                        ?: _state.value.seasonLevel,
                 )
                 // 今天打了几局一直在变，手动刷新时如果正停在这一项就跟着重数一次。
                 // ⚠️ 另起一个协程：重数要翻好几页对局列表，等它跑完再落盘的话
@@ -244,6 +256,7 @@ class OverviewViewModel(
             recent = current.recent,
             activities = current.activities,
             account = current.account,
+            seasonLevel = current.seasonLevel,
             // 用户选的模式跟着一起存：下次开 app 那张卡该还是他上次看的那个口径
             mode = current.mode.name,
             savedAtSec = currentEpochSeconds(),
@@ -303,6 +316,7 @@ internal fun restoreOverviewFromCache(raw: String?, nowSec: Long): OverviewUiSta
         stats = cache.stats,
         recent = cache.recent,
         account = cache.account,
+        seasonLevel = cache.seasonLevel,
         // 缓存可能是几天前写的，里面有些活动已经结束了，先滤掉
         activities = upcomingActivities(cache.activities, nowSec),
         // 上次选的模式。认不出来（老版本写的缓存里没这个字段）就退回默认那个，

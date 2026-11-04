@@ -94,6 +94,15 @@ data class OverviewSnapshot(
      * 和 [RecentFive] 一样出自同一批 `center.game.detail`，见 [AccountProfile]。
      */
     val account: AccountProfile? = null,
+
+    /**
+     * 赛季等级（顶栏胶囊第二行的 `LV.n`）。
+     *
+     * 来自 `center.mweapon.list` 的万象武器等级 —— `center.user.stats` 里没有等级字段，
+     * PC 端也是从这里取的（它存成 `nzm_season_level` 再画账号卡）。
+     * 0 = 这一轮没取到（新号还没有万象武器 / 接口挂了），UI 就不摆。
+     */
+    val seasonLevel: Int = 0,
 )
 
 /**
@@ -165,12 +174,16 @@ class OverviewRepository(
         // 扣不到再按"任意模式"单独补一遍 —— 见 [loadSelfDetails] 里为什么不能只盯猎场
         val account = accountProfileOf(details, cookie.openid)
             ?: runCatching { accountProfileOf(loadSelfDetails(), cookie.openid) }.getOrNull()
+        // 赛季等级：`center.user.stats` 里**没有**这一项，得单独拉万象武器列表。
+        // 挂了只影响顶栏那一个 `LV.n`，不该拖累整页。
+        val seasonLevel = runCatching { api.mweaponList().seasonLevel }.getOrDefault(0)
         return OverviewSnapshot(
             stats = stats,
             recent = summarizeRecent(details),
             activities = activities,
             firstWinCount = firstWin,
             account = account,
+            seasonLevel = seasonLevel,
         )
     }
 

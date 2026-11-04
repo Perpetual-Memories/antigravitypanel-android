@@ -10,6 +10,7 @@ import com.nzd.antigravitypanel.data.remote.dto.ConfigListResponseDto
 import com.nzd.antigravitypanel.data.remote.dto.GameDetailDto
 import com.nzd.antigravitypanel.data.remote.dto.GameListPageDto
 import com.nzd.antigravitypanel.data.remote.dto.MapStatsDto
+import com.nzd.antigravitypanel.data.remote.dto.MWeaponListDto
 import com.nzd.antigravitypanel.data.remote.dto.UserStatsDto
 import com.nzd.antigravitypanel.data.remote.dto.avatarDecoded
 import com.nzd.antigravitypanel.data.remote.dto.nicknameDecoded
@@ -38,24 +39,24 @@ class IdeResponseTest {
         val stats = IdeJson.decodeFromJsonElement<UserStatsDto>(data)
         assertEquals(75008L, stats.playtime)
         assertEquals(1912, stats.huntGameCount)
-        // 2026-09 的抓包里还没有赛季等级字段：解析成 0，UI 那边就不摆等级
-        assertEquals(0, stats.level)
     }
 
     @Test
-    fun 赛季等级按三个候选字段依次认() {
-        fun levelOf(json: String): Int =
-            IdeJson.decodeFromString<UserStatsDto>(json).level
+    fun 赛季等级从万象武器列表里取() {
+        // 2026-11-04 真机抓包的响应（字段剪到只留要用的那几个）。
+        // ⚠️ 等级不在 center.user.stats 里 —— 那是当初猜错的地方。
+        val raw = """
+            {"totalCount":2,"list":[
+              {"id":527613,"weaponID":20113000070,"seasonID":4,"level":148},
+              {"id":527614,"weaponID":20113000071,"seasonID":4,"level":12}
+            ]}
+        """.trimIndent()
+        val dto = IdeJson.decodeFromString<MWeaponListDto>(raw)
+        // 多把万象武器时取最高那把
+        assertEquals(148, dto.seasonLevel)
 
-        // 主字段
-        assertEquals(148, levelOf("""{"seasonLevel":148}"""))
-        // 只给结算用的那个名字时也能认
-        assertEquals(147, levelOf("""{"seasonEndLevel":147}"""))
-        assertEquals(146, levelOf("""{"seasonStartLevel":146}"""))
-        // 同时存在时优先 seasonLevel
-        assertEquals(148, levelOf("""{"seasonLevel":148,"seasonEndLevel":147}"""))
-        // 三个都没有 → 0（"不知道"，不是 0 级）
-        assertEquals(0, levelOf("""{"playtime":60}"""))
+        // 新号一把都没有 → 0（UI 就不摆 LV）
+        assertEquals(0, IdeJson.decodeFromString<MWeaponListDto>("""{"totalCount":0,"list":[]}""").seasonLevel)
     }
 
     @Test

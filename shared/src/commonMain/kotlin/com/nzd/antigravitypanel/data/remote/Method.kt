@@ -66,6 +66,18 @@ enum class IdeMethod(
     MapDrop("center.user.map.drop", IdePage.Index),
     MapItemList("center.map.item.list", IdePage.Record),
 
+    /**
+     * 万象武器列表。**账号的赛季等级就藏在这里**（`list[].level`）。
+     *
+     * 2026-11-04 抓包核对：`center.user.stats` 里只有场次和时长，没有等级；
+     * 官方 PC 端账号面板显示的 `LV.148` 来自这个接口 —— 万象武器等级就是赛季等级，
+     * PC 把它存成 `nzm_season_level` 再画到账号卡上。
+     *
+     * param 是 `{"pageSize":100,"page":1}`，eas_url 走 record 页（抓包里就是这样）。
+     * 响应里 `list` 可能有多把，取 `level` 最大的那把。
+     */
+    MWeaponList("center.mweapon.list", IdePage.Record),
+
     // 配置下发
     ConfigList("center.config.list", IdePage.Record),
 
@@ -79,8 +91,7 @@ enum class IdeMethod(
     CollectionHome("collection.home", IdePage.Index),
     CollectionWeapon("collection.weapon.list", IdePage.Record),
     CollectionTrap("collection.trap.list", IdePage.Record),
-    CollectionPlugin("collection.plugin.list", IdePage.Record),
-    CollectionRole("collection.role.list", IdePage.Record),
+    CollectionPlugin("collection.plugin.list", IdePage.Record),    CollectionRole("collection.role.list", IdePage.Record),
     CollectionPendant("collection.pendant.list", IdePage.Record),
     CollectionMecha("collection.mecha.list", IdePage.Record),
     CollectionMechaSkin("collection.mecha.skin.list", IdePage.Record),

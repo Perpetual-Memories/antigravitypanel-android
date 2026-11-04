@@ -1606,9 +1606,9 @@ private fun MainScreen(
                                 AccountTopBarChip(
                                     profile = chipProfile,
                                     partition = partitionLabelOf(cookie),
-                                    // 赛季等级跟着 `center.user.stats` 走；没登录时不摆
-                                    // （缓存里可能还留着上一个号的等级）
-                                    level = if (cookie != null) overviewState.stats.level else 0,
+                                    // 赛季等级来自 `center.mweapon.list`（万象武器等级），
+                                    // 没登录时不摆（缓存里可能还留着上一个号的等级）
+                                    level = if (cookie != null) overviewState.seasonLevel else 0,
                                     // 未登录才亮红点：它就是"这里还差一步"的提示，
                                     // 登录成功后 cookie 一有值自然就不画了
                                     showLoginDot = cookie == null,

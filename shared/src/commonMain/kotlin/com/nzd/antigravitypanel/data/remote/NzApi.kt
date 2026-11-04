@@ -13,6 +13,7 @@ import com.nzd.antigravitypanel.data.remote.dto.GameListPageDto
 import com.nzd.antigravitypanel.data.remote.dto.MapDropDto
 import com.nzd.antigravitypanel.data.remote.dto.MapItemListDto
 import com.nzd.antigravitypanel.data.remote.dto.MapStatsDto
+import com.nzd.antigravitypanel.data.remote.dto.MWeaponListDto
 import com.nzd.antigravitypanel.data.remote.dto.RawConfigDto
 import com.nzd.antigravitypanel.data.remote.dto.ScoreRedeemListDto
 import com.nzd.antigravitypanel.data.remote.dto.SignInDoDto
@@ -82,6 +83,15 @@ class NzApi(
     // ---------------- 战绩 ----------------
 
     suspend fun userStats(): UserStatsDto = call(IdeMethod.UserStats)
+
+    /**
+     * 万象武器列表 —— **账号赛季等级的唯一来源**（见 [IdeMethod.MWeaponList]）。
+     *
+     * 只要 `list[].level` 那一个数字，武器技能 / 外观那些字段不解。
+     * 一次拉 100 条（实测一个号就一两把），不分页。
+     */
+    suspend fun mweaponList(pageSize: Int = 100, page: Int = 1): MWeaponListDto =
+        call(IdeMethod.MWeaponList, "pageSize" to pageSize, "page" to page)
 
     /**
      * 对局列表，按页取。

@@ -49,6 +49,12 @@ data class OverviewCache(
      * 换不换号由它的 `openid` 字段判定（见 [AccountProfile]）。
      */
     val account: AccountProfile? = null,
+    /**
+     * 上一次读到的赛季等级（顶栏 `LV.n`）。跟着缓存落盘的理由和名片一样：
+     * 冷启动第一帧就该有，否则要先闪一帧没有等级的状态。
+     * 数据源是 `center.mweapon.list`（万象武器等级），见 `OverviewRepository.load`。
+     */
+    val seasonLevel: Int = 0,
     val savedAtSec: Long = 0,
 )
 

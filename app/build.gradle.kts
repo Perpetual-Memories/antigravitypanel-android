@@ -48,8 +48,9 @@ android {
         //        27（场次弹层加「最多游玩」与灰底说明；活跃时段改名并去掉高峰行；
         //            折磨 I~VI 统一显示「折磨」；签到卡图标改 Demibold + 红叉；
         //            超核卡片去掉「立即领取并抽奖」）；
-        //        28（超核弹层也去掉手动按钮，改由下拉签到页触发；账号胶囊第二行加 LV.n）。
-        versionCode = 28
+        //        28（超核弹层也去掉手动按钮，改由下拉签到页触发；账号胶囊第二行加 LV.n）；
+        //        29（赛季等级改从 center.mweapon.list 的万象武器等级取 —— stats 里没有这个字段）。
+        versionCode = 29
         versionName = "0.2.5"
     }
     // 发布签名：凭据放 keystore.properties（和 *.jks 一样在 .gitignore 里）。
