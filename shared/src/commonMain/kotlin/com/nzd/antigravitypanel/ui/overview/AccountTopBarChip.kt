@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -204,13 +205,14 @@ fun AccountTopBarChip(
  * 的空白。Coil 的 `AsyncImage` 失败是静默的，不给兜底就完全没有痕迹。
  */
 @Composable
-private fun AccountAvatar(
+internal fun AccountAvatar(
     url: String,
     modifier: Modifier = Modifier,
+    size: Dp = CHIP_AVATAR_SIZE,
 ) {
     Box(
         modifier = modifier
-            .size(CHIP_AVATAR_SIZE)
+            .size(size)
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
@@ -219,7 +221,7 @@ private fun AccountAvatar(
             Icon(
                 imageVector = MiuixIcons.Contacts,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(size * 0.6f),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
             )
         } else {

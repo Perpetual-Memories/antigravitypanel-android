@@ -35,6 +35,15 @@ object StoreKey {
     /** cookie 原文。存原文而不是解析后的字段，这样以后改解析规则老数据也能受益。 */
     const val COOKIE_RAW = "cookie_raw"
 
+    /** 小程序账号注册表（`SavedAccount` 数组的 JSON），与当前账号的 cookie 镜像分开保存。 */
+    const val ACCOUNTS_V1 = "accounts_v1"
+
+    /** 当前小程序账号的 openid；账号表存在后，不再从 [COOKIE_RAW] 迁移账号。 */
+    const val ACTIVE_ACCOUNT_OPENID = "active_account_openid"
+
+    /** 旧版全局账号缓存是否已认领进账号命名空间；防止后续账号误拿第一份旧缓存。 */
+    const val ACCOUNT_CACHE_MIGRATED = "account_cache_migrated"
+
     /** 本地保留月数，0 表示无上限。 */
     const val RETENTION_MONTHS = "retention_months"
 
@@ -68,6 +77,14 @@ object StoreKey {
 
     /** 同上，塔防那份。 */
     const val MAP_SEASON_FILTER_TOWER = "map_season_filter_tower"
+
+    /**
+     * 地图分布页「仅显示未毕业的地图」开关。**只有 "1" 才是开**（默认关）。
+     *
+     * 和赛季勾选不一样，这个开关不分模式：它表达的是"我只想看还差东西的图"，
+     * 换个 Tab 还该是同一个意图。
+     */
+    const val MAP_HIDE_COMPLETED = "map_hide_completed"
 
     /**
      * 地图分布页「官方统计」的缓存（`data.repo.MapStatsCache` 的 JSON）。

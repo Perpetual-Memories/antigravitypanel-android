@@ -77,8 +77,11 @@ import com.nzd.antigravitypanel.data.settings.MapSeasonFilter
 import com.nzd.antigravitypanel.data.settings.MatchMarks
 import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
 import com.nzd.antigravitypanel.data.settings.UserSettings
+import com.nzd.antigravitypanel.data.store.AccountScopedKeyValueStore
 import com.nzd.antigravitypanel.data.store.StoreKey
+import com.nzd.antigravitypanel.data.store.copyLegacyAccountData
 import com.nzd.antigravitypanel.data.store.createKeyValueStore
+import com.nzd.antigravitypanel.data.store.migrateLegacyAccountDataOnce
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.ui.about.AboutScreen
 import com.nzd.antigravitypanel.ui.activity.ActivityListScreen
@@ -126,6 +129,7 @@ import com.nzd.antigravitypanel.ui.mapdist.MapSeasonFilterMenu
 import com.nzd.antigravitypanel.ui.navigation.Navigator
 import com.nzd.antigravitypanel.ui.navigation.Route
 import com.nzd.antigravitypanel.ui.overview.AccountDetailSheet
+import com.nzd.antigravitypanel.ui.overview.AccountManagerSheet
 import com.nzd.antigravitypanel.ui.overview.AccountTopBarChip
 import com.nzd.antigravitypanel.ui.overview.CookieGuideDialog
 import com.nzd.antigravitypanel.ui.overview.OverviewScreen
@@ -295,17 +299,24 @@ fun AppContent(
 ) {
     val store = remember { createKeyValueStore() }
     val session = remember { CredentialSession(store) }
+    val activeOpenId by session.activeOpenId.collectAsState()
+    val accounts by session.accounts.collectAsState()
+    // 每个账号使用固定的 KV / API / ViewModel 作用域。切号重建会取消旧请求，
+    // 迟到的旧响应也只能写旧账号命名空间，不会混进当前账号。
+    val accountStore = remember(activeOpenId) { AccountScopedKeyValueStore(store, activeOpenId) }
     val settings = remember { UserSettings(store) }
-    val marks = remember { MatchMarks(store) }
-    val api = remember { NzApi() }
+    val marks = remember(activeOpenId) { MatchMarks(accountStore) }
+    val api = remember(activeOpenId) { NzApi() }
     val database = remember { DatabaseProvider.get() }
-    val repository = remember { MatchRepository(api, database.matchDao()) }
+    val repository = remember(activeOpenId) {
+        MatchRepository(api, database.matchDao(), ownerOpenId = session.activeOpenId)
+    }
     // 每局的 Boss 伤害口径缓存（历史页两个标签的数据源）。
     // 详情打开时顺手写、历史页后台补拉，两边共用同一份。
-    val bossStats = remember { MatchBossStats(api, database.matchBossStatDao()) }
-    val configRepository = remember { GameConfigRepository(api, database.configCacheDao()) }
-    val importState = remember { JsonImportState(store) }
-    val importer = remember { JsonMatchImporter(database.matchDao()) }
+    val bossStats = remember(activeOpenId) { MatchBossStats(api, database.matchBossStatDao()) }
+    val configRepository = remember(activeOpenId) { GameConfigRepository(api, database.configCacheDao()) }
+    val importState = remember(activeOpenId) { JsonImportState(accountStore) }
+    val importer = remember(activeOpenId) { JsonMatchImporter(database.matchDao(), activeOpenId.orEmpty()) }
     // 「导入数据」读的是本应用导出的 zip。和 importer 并存：老的 nzm_matches.json
     // 仍然能从同一个入口进来（见 pickBackupFile 里的分支）。
     val backupImporter = remember {
@@ -320,79 +331,94 @@ fun AppContent(
     // 之前跑完，导入过 JSON 也会先显示成「未输入」。
     var restored by remember { mutableStateOf(false) }
 
-    val homeViewModel = remember { HomeViewModel(repository, settings) }
+    val homeViewModel = remember(activeOpenId) { HomeViewModel(repository, settings) }
     // 概览缓存的同步快照。必须在 remember（合成阶段）里取而不是放进 LaunchedEffect：
     // 那是异步的，等协程跑完第一帧早就用默认状态画好了，状态卡会先闪一帧「未输入」。
     // peek 能同步是因为宿活在 setContent 之前已经 primeKeyValueStore() 预热过存储。
-    val overviewSeed = remember { runCatching { store.peek(StoreKey.OVERVIEW_CACHE) }.getOrNull() }
-    val overviewViewModel = remember {
-        OverviewViewModel(api, database.matchDao(), store, importState.imported, overviewSeed)
+    val overviewSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.OVERVIEW_CACHE) }.getOrNull()
     }
-    val historyViewModel = remember {
-        HistoryViewModel(database.matchDao(), marks, configRepository.config, bossStats)
+    val overviewViewModel = remember(activeOpenId) {
+        OverviewViewModel(api, database.matchDao(), accountStore, importState.imported, overviewSeed)
+    }
+    val historyViewModel = remember(activeOpenId) {
+        HistoryViewModel(database.matchDao(), marks, configRepository.config, bossStats, session.activeOpenId)
     }
     // 地图分布的官方统计 / 掉落物同样走"合成阶段同步 peek"：
     // 冷启动那一两秒里这一页要先摆上一次确认过的数字，
     // 否则会先摆一份本地场次（和小程序对不上的那个数）再跳回来
-    val mapStatsSeed = remember { runCatching { store.peek(StoreKey.MAP_STATS_CACHE) }.getOrNull() }
-    val mapDropsSeed = remember { runCatching { store.peek(StoreKey.MAP_DROPS_CACHE) }.getOrNull() }
-    val mapViewModel = remember {
+    val mapStatsSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.MAP_STATS_CACHE) }.getOrNull()
+    }
+    val mapDropsSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.MAP_DROPS_CACHE) }.getOrNull()
+    }
+    val mapViewModel = remember(activeOpenId) {
         MapDistributionViewModel(
             api,
             database.matchDao(),
             configRepository.config,
             MapSeasonFilter(store),
-            store,
+            accountStore,
             mapStatsSeed,
             mapDropsSeed,
+            session.activeOpenId,
         )
     }
     // 签到的冷启动缓存走和概览同一条路：宿主预热存储后同步 peek，
     // 否则签到卡会先闪一帧「未登录」再跳成真实数字
-    val signInSeed = remember { runCatching { store.peek(SignInViewModel.CACHE_KEY) }.getOrNull() }
-    val signInViewModel = remember { SignInViewModel(api, store, signInSeed) }
+    val signInSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(SignInViewModel.CACHE_KEY) }.getOrNull()
+    }
+    val signInViewModel = remember(activeOpenId) { SignInViewModel(api, accountStore, signInSeed) }
     // Build 计划。同样走"合成阶段同步 peek"：概览那张卡要在第一帧就画出在养的武器，
     // 放进 LaunchedEffect 的话它会先空一拍，看着像计划丢了
-    val buildSeed = remember { runCatching { store.peek(StoreKey.BUILD_PLAN) }.getOrNull() }
-    val buildPlanStore = remember { BuildPlanStore(store, buildSeed) }
+    val buildSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.BUILD_PLAN) }.getOrNull()
+    }
+    val buildPlanStore = remember(activeOpenId) { BuildPlanStore(accountStore, buildSeed) }
     // 游戏中心周签到：另一套凭证（QQ 登录 cookie），和小程序的签到互不相干。
     // ⚠️ 凭证原文也要同步 peek 一份：缓存里只有状态数字、没有"绑没绑凭证"，
     // 少了它冷启动第一帧会先摆「需要 QQ 登录凭证」，等协程读完才跳成缓存里的数字。
-    val qqSeed = remember { runCatching { store.peek(QqGiftViewModel.CACHE_KEY) }.getOrNull() }
-    val qqCredentialSeed = remember {
-        runCatching { store.peek(StoreKey.QQ_COOKIE_RAW) }.getOrNull()
+    val qqSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(QqGiftViewModel.CACHE_KEY) }.getOrNull()
     }
-    val qqGiftViewModel = remember {
-        QqGiftViewModel(store, cachedSeed = qqSeed, credentialSeed = qqCredentialSeed)
+    val qqCredentialSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.QQ_COOKIE_RAW) }.getOrNull()
+    }
+    val qqGiftViewModel = remember(activeOpenId) {
+        QqGiftViewModel(accountStore, cachedSeed = qqSeed, credentialSeed = qqCredentialSeed)
     }
     // 心悦悦享卡：第三套凭证（两个 T-* 请求头），和上面两块都不通用
-    val xinyueSeed = remember { runCatching { store.peek(XinyueViewModel.CACHE_KEY) }.getOrNull() }
-    val xinyueCredentialSeed = remember {
-        runCatching { store.peek(StoreKey.XINYUE_CREDENTIAL_RAW) }.getOrNull()
+    val xinyueSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(XinyueViewModel.CACHE_KEY) }.getOrNull()
     }
-    val xinyueViewModel = remember {
-        XinyueViewModel(store, cachedSeed = xinyueSeed, credentialSeed = xinyueCredentialSeed)
+    val xinyueCredentialSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.XINYUE_CREDENTIAL_RAW) }.getOrNull()
+    }
+    val xinyueViewModel = remember(activeOpenId) {
+        XinyueViewModel(accountStore, cachedSeed = xinyueSeed, credentialSeed = xinyueCredentialSeed)
     }
     // 超核组队活动：第四套凭证（活动页的 T-OPENID / T-ACCESS-TOKEN / T-APPID）。
     // 和心悦那对 header 长得一样但不能通用 —— appid 不同，服务端会校验。
-    val supercoreSeed = remember {
-        runCatching { store.peek(StoreKey.SUPERCORE_CACHE) }.getOrNull()
+    val supercoreSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.SUPERCORE_CACHE) }.getOrNull()
     }
-    val supercoreCredentialSeed = remember {
-        runCatching { store.peek(StoreKey.SUPERCORE_CREDENTIAL_RAW) }.getOrNull()
+    val supercoreCredentialSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.SUPERCORE_CREDENTIAL_RAW) }.getOrNull()
     }
-    val supercoreUrlSeed = remember {
-        runCatching { store.peek(StoreKey.SUPERCORE_ACTIVITY_URL) }.getOrNull()
+    val supercoreUrlSeed = remember(activeOpenId) {
+        runCatching { accountStore.peek(StoreKey.SUPERCORE_ACTIVITY_URL) }.getOrNull()
     }
-    val supercoreViewModel = remember {
+    val supercoreViewModel = remember(activeOpenId) {
         SupercoreViewModel(
-            store,
+            accountStore,
             cachedSeed = supercoreSeed,
             credentialSeed = supercoreCredentialSeed,
             urlSeed = supercoreUrlSeed,
         )
     }
-    DisposableEffect(Unit) {
+    DisposableEffect(activeOpenId) {
         onDispose {
             homeViewModel.close()
             overviewViewModel.close()
@@ -405,26 +431,35 @@ fun AppContent(
         }
     }
 
+    val remoteConfig = remember { mutableStateOf(RemoteConfig()) }
     LaunchedEffect(Unit) {
         session.restore()
+        // 旧版只有一份全局缓存：只在首次升级时交给当时的账号，之后添加账号不能重复认领。
+        migrateLegacyAccountDataOnce(store, session.activeOpenId.value)
         settings.restore()
+        restored = true
+        remoteConfig.value = runCatching { ConfigRepository().refresh() }.getOrDefault(RemoteConfig())
+        // 游戏配置不在这里拉：`center.config.list` 要凭证，而凭证可能是**之后**才填的。
+        // 拉配置的时机挂在下面那个观察 cookie 的 LaunchedEffect 上。
+    }
+
+    // 冷启动和切号共用：新作用域先读自己的缓存，再认领 Room 里升级前的旧行。
+    LaunchedEffect(activeOpenId, restored) {
+        if (!restored) return@LaunchedEffect
         marks.restore()
         importState.restore()
         configRepository.restoreLocal()
         buildPlanStore.restore()
-        // 同步快照没取到时（存储预热失败）的兜底。仍然要排在 restored 变 true 之前：
-        // 那一刻下面那个观察 (restored, ready, cookie) 的 LaunchedEffect 才会启动首刷。
         overviewViewModel.restoreCached()
         signInViewModel.restoreCached()
         mapViewModel.restoreCached()
         qqGiftViewModel.restore()
         xinyueViewModel.restore()
         supercoreViewModel.restore()
-        restored = true
-        val config = runCatching { ConfigRepository().refresh() }.getOrDefault(RemoteConfig())
-        repository.updateConfig(config)
-        // 游戏配置不在这里拉：`center.config.list` 要凭证，而凭证可能是**之后**才填的。
-        // 拉配置的时机挂在下面那个观察 cookie 的 LaunchedEffect 上。
+        activeOpenId?.let { repository.claimLegacyData(it) }
+    }
+    LaunchedEffect(repository, remoteConfig.value) {
+        repository.updateConfig(remoteConfig.value)
     }
 
     val cookie by session.cookie.collectAsState()
@@ -458,6 +493,7 @@ fun AppContent(
     var guideSaving by remember { mutableStateOf(false) }
     var guideError by remember { mutableStateOf<String?>(null) }
     var accountSheet by remember { mutableStateOf(false) }
+    var accountManagerSheet by remember { mutableStateOf(false) }
     /**
      * 全屏扫码页。它是**app 级浮层**，既不进路由也不走二级页图层：
      * 二级页图层（`AppDetail`）是挂在 MainScreen 里的，压不住同样 app 级的账号详情弹层，
@@ -491,7 +527,7 @@ fun AppContent(
     /** 数据包的摘要，理由同上。 */
     val backupSummary = remember { ExportSummary() }
     val scope = rememberCoroutineScope()
-    val yybLogin = remember {
+    val yybLogin = remember(activeOpenId) {
         YybLoginRepository(
             engineFactory = ::createYybLoginEngine,
             exchange = GameCodeExchange(),
@@ -717,6 +753,11 @@ fun AppContent(
                         // ⚠️ 顺序有讲究：先 cookie —— 它一变，下面那个观察 cookie 的 effect
                         // 会自动发起一次同步（在线时等于"导入后立刻校验"）；再是设置 / 标记 / 缓存。
                         session.reload()
+                        session.activeOpenId.value?.let { importedOwner ->
+                            // 备份仍是旧格式：缓存先落在无属主键，再认领给包里恢复出的当前账号。
+                            copyLegacyAccountData(store, importedOwner)
+                            repository.claimLegacyData(importedOwner)
+                        }
                         // ⚠️ Settings.restore() 会"消费"代理模式那个一次性标记
                         // （读出来就删）。导入不该顺手把用户刚开的代理保护取消掉，
                         // 所以原有的开关状态要在恢复之后再写回去一次。
@@ -764,9 +805,9 @@ fun AppContent(
 
     // 「导出数据」：凭证 + 战绩（含详情）+ 地图分布 / 签到缓存 + 游戏配置表，打成一个 zip。
     // 全部读本地，不发请求 —— 这个功能的场景就是"旧机已经不打算再登录了"。
-    val backupExporter = remember {
+    val backupExporter = remember(activeOpenId) {
         BackupExporter(
-            store,
+            accountStore,
             database.matchDao(),
             database.matchBossStatDao(),
             database.configCacheDao(),
@@ -778,7 +819,7 @@ fun AppContent(
 
     // 实验性功能：把本机对局导出成 CSV / JSON。
     // 全部读本地库，不发请求 —— 详情接口一次只查一局，为了导出几千行去逐局现拉不现实。
-    val exporter = remember { MatchExporter(database.matchDao(), bossStats) }
+    val exporter = remember(activeOpenId) { MatchExporter(database.matchDao(), bossStats) }
     val saveMatchFile = rememberTextFileSaver { saved ->
         exportMessage = if (saved) exportSummary.text else null
     }
@@ -799,19 +840,37 @@ fun AppContent(
 
     // 首胜宝箱数量跟着概览走：它和总览数字是同一次刷拉取回来的
     val overviewState by overviewViewModel.state.collectAsState()
+    LaunchedEffect(activeOpenId, overviewState.account, overviewState.seasonLevel) {
+        val owner = activeOpenId ?: return@LaunchedEffect
+        val profile = overviewState.account?.takeIf { it.openid.isBlank() || it.openid == owner }
+        if (profile != null || overviewState.seasonLevel > 0) {
+            session.updateAccountProfile(
+                openid = owner,
+                nickname = profile?.nickname,
+                avatarUrl = profile?.avatarUrl,
+                seasonLevel = overviewState.seasonLevel.takeIf { it > 0 },
+            )
+        }
+    }
     // ⚠️ 顶栏那颗账号胶囊要的东西**故意不在这里算**，要在 MainScreen 里面 collect：
     // 一级页的内容 lambda 是 `remember(backStack)` 存下来的，
     // 在外面先把 State 读成普通值再传进去，那一层不跟着重组的话值就钉死在第一帧了。
     // 传进 MainScreen 的也得是 ViewModel / UserSettings 这种稳定对象，传值就等于传快照。
 
-    val entryProvider = remember(backStack) {
+    val entryProvider = remember(backStack, activeOpenId) {
         entryProvider<NavKey> {
             entry<Route.Main> {
                 MainScreen(
                     padding = padding,
                     // Cookie 的唯一入口：有凭证就直接看账号，没有就先问一句怎么拿
                     onOpenAccountDetail = {
+                        guideError = null
                         if (cookie == null) cookieGuide = true else accountSheet = true
+                    },
+                    // 顶栏胶囊是多账号入口；概览里的 Cookie 状态卡仍进入账号详情。
+                    onOpenAccountManager = {
+                        guideError = null
+                        accountManagerSheet = true
                     },
                     onOpenChestDialog = { chestDialog = true },
                     onOpenAllActivities = { openDetail(AppDetail.ACTIVITY_LIST) },
@@ -878,7 +937,7 @@ fun AppContent(
                             repository.clearLocal()
                             // Boss 口径缓存是挂在对局上的，对局都清了它也得跟着清，
                             // 不然下次同步回同样的局时会带着上一次的结论
-                            bossStats.clear()
+                            bossStats.clear(activeOpenId.orEmpty())
                             // 库都空了，凭证卡不该还挂着「已导入json」
                             importState.clear()
                             overviewViewModel.refresh(cookie)
@@ -889,7 +948,11 @@ fun AppContent(
                         scope.launch {
                             runCatching {
                                 // appVersion 只进清单，方便以后排查"这份包是哪版写的"
-                                backupExporter.build(currentEpochSeconds(), appVersionName())
+                                backupExporter.build(
+                                    currentEpochSeconds(),
+                                    appVersionName(),
+                                    activeOpenId.orEmpty(),
+                                )
                             }.onSuccess { file ->
                                 backupSummary.text = "已导出 ${file.matchCount} 场对局" +
                                     "（其中 ${file.detailCount} 场带详情）"
@@ -901,7 +964,7 @@ fun AppContent(
                     },
                     onExportMatches = { format ->
                         scope.launch {
-                            val file = exporter.build(format, currentEpochSeconds())
+                            val file = exporter.build(format, currentEpochSeconds(), activeOpenId.orEmpty())
                             if (file.matchCount == 0) {
                                 exportMessage = "本机还没有对局记录，先同步一次再导出"
                                 return@launch
@@ -930,8 +993,8 @@ fun AppContent(
                     detailContent = {
                         val roomId = visibleMatch
                         if (roomId != null) {
-                            val detailViewModel = remember(roomId) {
-                                MatchDetailViewModel(api, database.matchDao(), bossStats)
+                            val detailViewModel = remember(roomId, activeOpenId) {
+                                MatchDetailViewModel(api, database.matchDao(), bossStats, session.activeOpenId)
                             }
                             MatchDetailScreen(
                                 viewModel = detailViewModel,
@@ -1072,15 +1135,15 @@ fun AppContent(
     val applyCredential: suspend (String) -> Unit = { raw ->
         guideSaving = true
         guideError = null
+        val previousOwner = session.activeOpenId.value
         val result = runCatching { session.save(raw) }
         guideSaving = false
         result.onSuccess { saved ->
             accountSheet = false
-            // 和扫码登录、冷启动共用 refreshAll：以前这里只刷 home / overview / signIn
-            // 三个 ViewModel，漏了 api.updateCookie() 和游戏配置表 —— 前者是
-            // 「凭证靠时序副作用写进单例」那个坑，地图分布页会拿着上一个账号的凭证请求。
-            // 刚填的凭证要立刻走一次自动签到，不用等下次冷启动
-            refreshAll(saved)
+            accountManagerSheet = false
+            // 换成另一个 owner 时，本闭包里的 ViewModel 仍属于旧账号，不能再由它刷新。
+            // cookie effect 会在新作用域接管；只有同号更新 token 才原地补一轮。
+            if (previousOwner == saved.openid) refreshAll(saved)
         }.onFailure { e ->
             guideError = e.message ?: "保存失败"
         }
@@ -1088,9 +1151,10 @@ fun AppContent(
 
     LaunchedEffect(yybState.resultCookie) {
         val raw = yybState.resultCookie ?: return@LaunchedEffect
+        val previousOwner = session.activeOpenId.value
         runCatching { session.save(raw) }
             .onSuccess { saved ->
-                refreshAll(saved)
+                if (previousOwner == saved.openid) refreshAll(saved)
                 yybLogin.close()
                 yybQrShown = false
             }
@@ -1101,12 +1165,35 @@ fun AppContent(
             }
     }
 
+    // HAR 扫描与保存由账号详情和添加账号视图共用；大文件解析不占用主线程。
+    val importHarCredential: (String) -> Unit = { text ->
+        scope.launch {
+            val scan = withContext(Dispatchers.Default) { scanMiniProgramCookie(text) }
+            val raw = scan.cookie
+            if (raw != null) {
+                applyCredential(raw)
+            } else {
+                guideError = if (scan.looksLikeHar) {
+                    "这份 HAR 里没有带 openid / access_token 的请求，" +
+                        "要在微信小程序「逆战未来工具箱」里抓一次"
+                } else {
+                    "这个文件读不出 HAR 结构，换一份抓包文件试试"
+                }
+            }
+        }
+    }
+
     AccountDetailSheet(
         show = accountSheet,
         cookie = cookie,
         saving = guideSaving,
         error = guideError,
         onSave = { raw -> scope.launch { applyCredential(raw) } },
+        onManageAccounts = {
+            accountSheet = false
+            guideError = null
+            accountManagerSheet = true
+        },
         onLogout = {
             scope.launch {
                 session.clear()
@@ -1125,25 +1212,32 @@ fun AppContent(
             accountSheet = false
             scannerShown = true
         },
-        // 左上角「导入抓包」：从 HAR 里认出 openid / access_token 那条 cookie 直接登。
-        // 认出来就直接存——用户点"导入文件"就是要登录，再让他点一次 ✓ 是多余的。
-        // 解析放 Default 线程：一份抓包动辄几 MB，主线程 Jsons 一下能卡掉两帧。
-        onImportHar = { text ->
+        onImportHar = importHarCredential,
+    )
+
+    AccountManagerSheet(
+        show = accountManagerSheet,
+        accounts = accounts,
+        activeOpenId = activeOpenId,
+        saving = guideSaving,
+        error = guideError,
+        onSwitch = { openid ->
             scope.launch {
-                val scan = withContext(Dispatchers.Default) { scanMiniProgramCookie(text) }
-                val raw = scan.cookie
-                if (raw != null) {
-                    applyCredential(raw)
-                } else {
-                    guideError = if (scan.looksLikeHar) {
-                        "这份 HAR 里没有带 openid / access_token 的请求，" +
-                            "要在微信小程序「逆战未来工具箱」里抓一次"
-                    } else {
-                        "这个文件读不出 HAR 结构，换一份抓包文件试试"
-                    }
+                if (session.switchTo(openid)) {
+                    closeDetail()
+                    accountManagerSheet = false
+                    accountSheet = false
+                    guideError = null
                 }
             }
         },
+        onSave = { raw -> scope.launch { applyCredential(raw) } },
+        onScanClick = {
+            accountManagerSheet = false
+            scannerShown = true
+        },
+        onImportHar = importHarCredential,
+        onDismiss = { accountManagerSheet = false },
     )
 
     // 扫码页。盖在 NavDisplay 之后（也就是所有页面和上面那些弹层之上），
@@ -1238,12 +1332,12 @@ fun AppContent(
                     text = buildString {
                         append("已识别到账号")
                         if (!pending.openid.isNullOrBlank()) append("：${pending.openid}")
-                        append("。确认后本机会改用这个账号，现有凭证会被替换。")
+                        append("。确认后会添加或更新这个本机账号，并切换到它。")
                     },
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
-                // 左右两个小按钮，靠右排：换账号是**破坏性**操作（现有凭证会被替掉），
+                // 左右两个小按钮，靠右排：确认后会切换当前账号，
                 // 两个都撑满整行的话，一不留神就容易点到"确认登录"那一整条。
                 Row(
                     modifier = Modifier
@@ -1263,12 +1357,11 @@ fun AppContent(
                             val raw = pending.raw
                             scanPending = null
                             scope.launch {
+                                val previousOwner = session.activeOpenId.value
                                 runCatching { session.save(raw) }
                                     .onSuccess { saved ->
-                                        // 走 refreshAll 而不是挨个刷三个 ViewModel：
-                                        // 它里面还有 api.updateCookie 和游戏配置表，
-                                        // 少了前者，地图分布页会拿着上一个号的凭证去请求
-                                        refreshAll(saved)
+                                        // 跨 owner 时由新作用域的 cookie effect 刷新，旧页面不再发新号请求。
+                                        if (previousOwner == saved.openid) refreshAll(saved)
                                     }
                                     .onFailure { e ->
                                         scanMessage =
@@ -1368,6 +1461,7 @@ fun AppContent(
 private fun MainScreen(
     padding: PaddingValues,
     onOpenAccountDetail: () -> Unit,
+    onOpenAccountManager: () -> Unit,
     onOpenChestDialog: () -> Unit,
     onOpenAllActivities: () -> Unit,
     onOpenSignIn: () -> Unit,
@@ -1439,6 +1533,8 @@ private fun MainScreen(
     // selected 为 null 时菜单里五个都画成勾着（第一次用 = 全选）
     val mapSeasonOptions by mapViewModel.seasonOptions.collectAsState()
     val mapSeasonSelected by mapViewModel.seasonSelection.collectAsState()
+    // 「仅显示未毕业的地图」是全局开关（不分模式），和赛季那几组用一条分割线隔开
+    val mapHideCompleted by mapViewModel.hideCompleted.collectAsState()
 
     // 顶栏账号胶囊：开关和名片都在**这里** collect，不接外层传进来的快照。
     // 两道闸：开关开着 → （没登录，摆占位）或者（有凭证且这张名片属于当前这个号）。
@@ -1612,7 +1708,7 @@ private fun MainScreen(
                                     // 未登录才亮红点：它就是"这里还差一步"的提示，
                                     // 登录成功后 cookie 一有值自然就不画了
                                     showLoginDot = cookie == null,
-                                    onClick = onOpenAccountDetail,
+                                    onClick = onOpenAccountManager,
                                 )
                             }
                         } else {
@@ -1673,22 +1769,23 @@ private fun MainScreen(
                                         }
                                     }
 
-                                    // 地图分布的赛季筛选（猎场 / 塔防各有自己的一份勾选）。
-                                    // 时空追猎没有赛季表，seasonOptions 是空的 —— 那时整个入口不摆，
-                                    // 摆一个点开什么都没有的图标比没有更让人困惑。
-                                    Tabs.MAPS -> if (mapSeasonOptions.isNotEmpty()) {
-                                        TopBarGlassChip {
-                                            MapSeasonFilterMenu(
-                                                seasons = mapSeasonOptions,
-                                                selected = mapSeasonSelected,
-                                                onToggle = mapViewModel::toggleSeason,
-                                            ) {
-                                                Icon(
-                                                    imageVector = MiuixIcons.Tune,
-                                                    contentDescription = "按赛季筛选",
-                                                    tint = MiuixTheme.colorScheme.onSurface,
-                                                )
-                                            }
+                                    // 地图分布的筛选（赛季 + 仅看未毕业）。
+                                    // 时空追猎没有赛季表，那组 entry 会是空的、被组件自动跳过；
+                                    // 但菜单本身**必须照样摆** —— 否则在那边"仅显示未毕业"
+                                    // 一旦开着就再也关不掉了（它不分模式，切 Tab 也还生效）。
+                                    Tabs.MAPS -> TopBarGlassChip {
+                                        MapSeasonFilterMenu(
+                                            seasons = mapSeasonOptions,
+                                            selected = mapSeasonSelected,
+                                            onToggle = mapViewModel::toggleSeason,
+                                            hideCompleted = mapHideCompleted,
+                                            onToggleHideCompleted = mapViewModel::toggleHideCompleted,
+                                        ) {
+                                            Icon(
+                                                imageVector = MiuixIcons.Tune,
+                                                contentDescription = "筛选地图",
+                                                tint = MiuixTheme.colorScheme.onSurface,
+                                            )
                                         }
                                     }
 

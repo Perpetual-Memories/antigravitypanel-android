@@ -36,9 +36,12 @@ import kotlin.test.assertTrue
  * - 空凭证不覆盖本机已有的（否则"导入一份没凭证的包"就等于退出登录）；
  * - 不是本应用 / 版本太新 / 不是 zip，都要报错而不是默默成功。
  */
+private const val OWNER_A = "owner-a"
+private const val OWNER_B = "owner-b"
+
 class BackupRoundTripTest {
 
-    private fun match(roomId: String = "1001") = MatchEntity(
+    private fun match(roomId: String = "1001", ownerOpenId: String = OWNER_A) = MatchEntity(
         roomId = roomId,
         openId = "openid-1",
         eventTime = "2026-09-04 22:15:16",
@@ -60,15 +63,17 @@ class BackupRoundTripTest {
         rankValue = 1,
         finished = true,
         syncedAtSec = 111L,
+        ownerOpenId = ownerOpenId,
     )
 
-    private fun detail(roomId: String = "1001") = MatchBossStatEntity(
+    private fun detail(roomId: String = "1001", ownerOpenId: String = OWNER_A) = MatchBossStatEntity(
         roomId = roomId,
         selfBossDamage = 500L,
         teamBossDamage = 800L,
         rivalBossDamage = 300L,
         updatedAtSec = 999L,
         payloadJson = "{\"playerCount\":4}",
+        ownerOpenId = ownerOpenId,
     )
 
     private class FakeStore(initial: Map<String, String> = emptyMap()) : KeyValueStore {
@@ -86,44 +91,64 @@ class BackupRoundTripTest {
     }
 
     private class FakeMatchDao : MatchDao {
-        val rows = LinkedHashMap<String, MatchEntity>()
+        val rows = LinkedHashMap<Pair<String, String>, MatchEntity>()
         override suspend fun upsertAll(entities: List<MatchEntity>) {
-            entities.forEach { rows[it.roomId] = it }
+            entities.forEach { rows[it.ownerOpenId to it.roomId] = it }
         }
 
-        override suspend fun knownStates(roomIds: List<String>): List<MatchKnownRow> =
-            roomIds.mapNotNull { rows[it] }.map { MatchKnownRow(it.roomId, it.finished) }
+        override suspend fun knownStates(ownerOpenId: String, roomIds: List<String>): List<MatchKnownRow> =
+            roomIds.mapNotNull { rows[ownerOpenId to it] }.map { MatchKnownRow(it.roomId, it.finished) }
 
-        override suspend fun find(roomId: String): MatchEntity? = rows[roomId]
-        override suspend fun previousOf(mapId: Int, subModeType: Int, beforeSec: Long): MatchEntity? = null
-        override suspend fun page(limit: Int, offset: Int): List<MatchEntity> =
-            rows.values.drop(offset).take(limit)
+        override suspend fun find(ownerOpenId: String, roomId: String): MatchEntity? = rows[ownerOpenId to roomId]
+        override suspend fun previousOf(
+            ownerOpenId: String,
+            mapId: Int,
+            subModeType: Int,
+            beforeSec: Long,
+        ): MatchEntity? = null
+        override suspend fun page(ownerOpenId: String, limit: Int, offset: Int): List<MatchEntity> =
+            rows.values.filter { it.ownerOpenId == ownerOpenId }.drop(offset).take(limit)
 
-        override fun observeAll(): Flow<List<MatchEntity>> = flowOf(rows.values.toList())
-        override suspend fun all(): List<MatchEntity> = rows.values.toList()
-        override fun observeCount(): Flow<Long> = flowOf(rows.size.toLong())
-        override suspend fun count(): Long = rows.size.toLong()
-        override suspend fun oldestTimeSec(): Long? = null
-        override suspend fun newestTimeSec(): Long? = null
-        override suspend fun deleteOlderThan(cutoffSec: Long): Int = 0
-        override suspend fun clear() = rows.clear()
+        override fun observeAll(ownerOpenId: String): Flow<List<MatchEntity>> =
+            flowOf(rows.values.filter { it.ownerOpenId == ownerOpenId })
+        override suspend fun all(ownerOpenId: String): List<MatchEntity> =
+            rows.values.filter { it.ownerOpenId == ownerOpenId }
+        override fun observeCount(ownerOpenId: String): Flow<Long> =
+            flowOf(rows.values.count { it.ownerOpenId == ownerOpenId }.toLong())
+        override suspend fun count(ownerOpenId: String): Long =
+            rows.values.count { it.ownerOpenId == ownerOpenId }.toLong()
+        override suspend fun oldestTimeSec(ownerOpenId: String): Long? = null
+        override suspend fun newestTimeSec(ownerOpenId: String): Long? = null
+        override suspend fun deleteOlderThan(ownerOpenId: String, cutoffSec: Long): Int = 0
+        override suspend fun clear(ownerOpenId: String) {
+            rows.keys.filter { it.first == ownerOpenId }.forEach { rows.remove(it) }
+        }
+        override suspend fun claimLegacyMatches(ownerOpenId: String): Int = 0
+        override suspend fun claimLegacyBossStats(ownerOpenId: String): Int = 0
+        override suspend fun deleteUnclaimedMatches(): Int = 0
+        override suspend fun deleteUnclaimedBossStats(): Int = 0
     }
 
     private class FakeBossStatDao : MatchBossStatDao {
-        val rows = LinkedHashMap<String, MatchBossStatEntity>()
+        val rows = LinkedHashMap<Pair<String, String>, MatchBossStatEntity>()
         override suspend fun upsert(item: MatchBossStatEntity) {
-            rows[item.roomId] = item
+            rows[item.ownerOpenId to item.roomId] = item
         }
 
         override suspend fun upsertAll(items: List<MatchBossStatEntity>) {
-            items.forEach { rows[it.roomId] = it }
+            items.forEach { rows[it.ownerOpenId to it.roomId] = it }
         }
 
-        override fun observeAll(): Flow<List<MatchBossStatEntity>> = flowOf(rows.values.toList())
-        override suspend fun all(): List<MatchBossStatEntity> = rows.values.toList()
-        override suspend fun knownRoomIds(): List<String> = rows.keys.toList()
-        override suspend fun deleteOrphans(): Int = 0
-        override suspend fun clear() = rows.clear()
+        override fun observeAll(ownerOpenId: String): Flow<List<MatchBossStatEntity>> =
+            flowOf(rows.values.filter { it.ownerOpenId == ownerOpenId })
+        override suspend fun all(ownerOpenId: String): List<MatchBossStatEntity> =
+            rows.values.filter { it.ownerOpenId == ownerOpenId }
+        override suspend fun knownRoomIds(ownerOpenId: String): List<String> =
+            rows.values.filter { it.ownerOpenId == ownerOpenId }.map { it.roomId }
+        override suspend fun deleteOrphans(ownerOpenId: String): Int = 0
+        override suspend fun clear(ownerOpenId: String) {
+            rows.keys.filter { it.first == ownerOpenId }.forEach { rows.remove(it) }
+        }
     }
 
     private class FakeConfigDao : ConfigCacheDao {
@@ -165,18 +190,18 @@ class BackupRoundTripTest {
                 ),
             ),
         )
-        source.matches.rows["1001"] = match()
-        source.details.rows["1001"] = detail()
+        source.matches.rows[OWNER_A to "1001"] = match()
+        source.details.rows[OWNER_A to "1001"] = detail()
         source.config.rows["game_config"] = ConfigCacheEntity("game_config", "{\"map\":[]}", 5L)
 
-        val file = source.exporter.build(nowSec = 1780000000L, appVersion = "0.2.4")
+        val file = source.exporter.build(nowSec = 1780000000L, appVersion = "0.2.4", ownerOpenId = OWNER_A)
         assertTrue(file.includesCredentials)
         assertEquals(1, file.matchCount)
         assertEquals(1, file.detailCount)
         assertEquals("nzm_backup_20260529.zip", file.fileName)
 
         val target = Fixture()
-        val result = target.importer.import(file.bytes)
+        val result = target.importer.import(file.bytes, OWNER_A)
 
         assertEquals(BACKUP_FORMAT_VERSION, result.formatVersion)
         assertEquals(1, result.matchCount)
@@ -186,14 +211,35 @@ class BackupRoundTripTest {
         assertEquals(2, result.settingCount)
         assertEquals(1, result.configCount)
 
-        assertEquals(match(), target.matches.rows["1001"])
-        assertEquals(detail(), target.details.rows["1001"])
+        assertEquals(match(), target.matches.rows[OWNER_A to "1001"])
+        assertEquals(detail(), target.details.rows[OWNER_A to "1001"])
         assertEquals("{\"map\":[]}", target.config.rows["game_config"]?.json)
         assertEquals("openid=abc; access_token=xyz", target.store.map[StoreKey.COOKIE_RAW])
         assertEquals("1001,1002", target.store.map[StoreKey.PINNED_ROOMS])
         // 空串是有含义的（三个页面都显示完整数字），不能被当成"没值"丢掉
         assertEquals("", target.store.map[StoreKey.SCORE_WAN_TARGETS])
         assertEquals("{\"x\":1}", target.store.map[StoreKey.OVERVIEW_CACHE])
+    }
+
+    @Test
+    fun 同roomId双账号导出隔离且旧包导入当前owner() = runBlocking {
+        val source = Fixture()
+        source.matches.rows[OWNER_A to "shared"] = match("shared", OWNER_A).copy(score = 100)
+        source.matches.rows[OWNER_B to "shared"] = match("shared", OWNER_B).copy(score = 200)
+        source.details.rows[OWNER_A to "shared"] = detail("shared", OWNER_A).copy(selfBossDamage = 10)
+        source.details.rows[OWNER_B to "shared"] = detail("shared", OWNER_B).copy(selfBossDamage = 20)
+
+        val file = source.exporter.build(nowSec = 1780000000L, ownerOpenId = OWNER_A)
+        assertEquals(1, file.matchCount)
+        assertEquals(1, file.detailCount)
+
+        val target = Fixture()
+        target.importer.import(file.bytes, OWNER_B)
+        assertEquals(setOf(OWNER_B to "shared"), target.matches.rows.keys)
+        assertEquals(setOf(OWNER_B to "shared"), target.details.rows.keys)
+        assertEquals(100L, target.matches.rows.getValue(OWNER_B to "shared").score)
+        assertEquals(10L, target.details.rows.getValue(OWNER_B to "shared").selfBossDamage)
+        assertEquals("{\"playerCount\":4}", target.details.rows.getValue(OWNER_B to "shared").payloadJson)
     }
 
     @Test

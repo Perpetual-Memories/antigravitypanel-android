@@ -2,7 +2,7 @@ package com.nzd.antigravitypanel.data.db
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.PrimaryKey
+import androidx.room.Index
 
 /**
  * 一局对局的 Boss 伤害口径缓存。
@@ -20,9 +20,12 @@ import androidx.room.PrimaryKey
  * （塔防 / 时空追猎）时写一条全 0 的行。补拉逻辑靠"有没有这一行"去重，
  * 不这么做的话每次进历史页都会把拉不动的老对局重试一遍。
  */
-@Entity(tableName = "match_boss_stats")
+@Entity(
+    tableName = "match_boss_stats",
+    primaryKeys = ["ownerOpenId", "roomId"],
+    indices = [Index(value = ["ownerOpenId"])],
+)
 data class MatchBossStatEntity(
-    @PrimaryKey
     @ColumnInfo(name = "roomId")
     val roomId: String,
     @ColumnInfo(name = "selfBossDamage")
@@ -44,4 +47,7 @@ data class MatchBossStatEntity(
      */
     @ColumnInfo(name = "payloadJson")
     val payloadJson: String? = null,
+    /** 凭证里的 openid。不能使用对局 DTO 的 vOpenID 代替。空串仅供迁移前旧数据使用。 */
+    @ColumnInfo(name = "ownerOpenId")
+    val ownerOpenId: String = "",
 )

@@ -163,12 +163,12 @@ class DailyBriefingTest {
     }
 
     @Test
-    fun 不按账号过滤() {
+    fun 不按DTOvOpenID二次过滤() {
         val day = parseServerTime("2026-11-04 00:00:00")!!
         val matches = listOf(
             match("mine", "2026-11-04 10:00:00", mapId = 17, openId = "openid-a"),
-            // 微信区的凭证 openid 和战绩里的 vOpenID 不一定是同一个值；
-            // 早期导入的数据更是十六进制 / 十进制两套写法。判等会把整库筛空，所以不筛。
+        // 输入列表已经由 HistoryViewModel 按独立 ownerOpenId 隔离；这里不能再拿凭证 openid
+        // 去匹配 DTO vOpenID，否则两套标识不同会把已隔离的历史再次筛空。
             match("other-format", "2026-11-04 11:00:00", mapId = 17, openId = "openid-b"),
             match("legacy", "2026-11-04 12:00:00", mapId = 17, openId = ""),
         )

@@ -30,10 +30,11 @@ data class ImportResult(
  */
 class JsonMatchImporter(
     private val dao: MatchDao,
+    private val ownerOpenId: String = "",
 ) {
     suspend fun import(raw: String, nowSec: Long = currentEpochSeconds()): ImportResult {
         val array = requireArray(parseRoot(raw))
-        val entities = toEntities(decodeList(array), nowSec)
+        val entities = toEntities(decodeList(array), nowSec, ownerOpenId)
         entities.chunked(UPSERT_CHUNK_SIZE).forEach { dao.upsertAll(it) }
         return ImportResult(
             parsed = array.size,
@@ -57,8 +58,11 @@ class JsonMatchImporter(
  *
  * @throws IllegalArgumentException 文件不是 JSON，或者里面找不到对局数组
  */
-fun parseImportedMatches(raw: String, syncedAtSec: Long = 0L): List<MatchEntity> =
-    toEntities(decodeList(requireArray(parseRoot(raw))), syncedAtSec)
+fun parseImportedMatches(
+    raw: String,
+    syncedAtSec: Long = 0L,
+    ownerOpenId: String = "",
+): List<MatchEntity> = toEntities(decodeList(requireArray(parseRoot(raw))), syncedAtSec, ownerOpenId)
 
 /**
  * 导出文件专用的 [Json]。
@@ -87,12 +91,13 @@ private fun decodeList(array: JsonArray): List<ImportedMatchDto> =
 private fun toEntities(
     dtos: List<ImportedMatchDto>,
     syncedAtSec: Long,
+    ownerOpenId: String,
 ): List<MatchEntity> = dtos
     .asSequence()
     // 房间号是主键，0 说明这条是脏数据，写进去会在列表里留一行永远打不开的记录
     .filter { it.DsRoomId != 0L }
     .distinctBy { it.DsRoomId }
-    .map { it.toEntity(syncedAtSec) }
+    .map { it.toEntity(syncedAtSec, ownerOpenId) }
     .toList()
 
 /**

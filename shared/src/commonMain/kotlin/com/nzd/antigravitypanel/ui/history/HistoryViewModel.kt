@@ -13,6 +13,7 @@ import com.nzd.antigravitypanel.domain.matchTagOf
 import com.nzd.antigravitypanel.domain.modeOf
 import com.nzd.antigravitypanel.util.currentEpochSeconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -21,6 +22,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,23 +50,27 @@ private const val BACKFILL_BATCH = 6
  *
  * 真到几千行卡了，把 [allMatches] 换成 DAO 的 SQL 分页即可，接口不用动。
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class HistoryViewModel(
     private val dao: MatchDao,
     private val marks: MatchMarks,
     private val config: StateFlow<GameConfigDto>,
     private val bossStats: MatchBossStats,
+    private val ownerOpenId: StateFlow<String?> = MutableStateFlow(null),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** 本轮已经补过的 roomId。和库里那份一起用来去重，避免同一局反复请求。 */
-    private val backfilled = mutableSetOf<String>()
+    /** 本轮已经补过的 owner + roomId；两个账号的同 roomId 不能一起去重。 */
+    private val backfilled = mutableSetOf<Pair<String, String>>()
+    private val preparedOwners = mutableSetOf<String>()
 
     /**
      * 本地全量对局。对外暴露是因为筛选面板要拿它算"地图下拉里有哪些地图"——
      * 只给筛完的结果的话，选了 A 地图之后下拉里就只剩 A 了。
      */
-    val allMatches: StateFlow<List<MatchEntity>> = dao.observeAll()
-        .stateIn(scope, SharingStarted.Lazily, emptyList())
+    val allMatches: StateFlow<List<MatchEntity>> = ownerOpenId.flatMapLatest { owner ->
+        if (owner.isNullOrBlank()) flowOf(emptyList()) else dao.observeAll(owner)
+    }.stateIn(scope, SharingStarted.Lazily, emptyList())
 
     /**
      * 筛选条件。**不含翻页用的 limit**——limit 一变就把整份筛选重算一遍，
@@ -118,8 +125,9 @@ class HistoryViewModel(
      * 判定放在这里而不是每一行里算：规则是整数比较不假，但它要读三列数据，
      * 放在 Composable 里就意味着每次重组都重算一遍整张表。
      */
-    val tags: StateFlow<Map<String, MatchTag>> = bossStats.observe()
-        .map { rows ->
+    val tags: StateFlow<Map<String, MatchTag>> = ownerOpenId.flatMapLatest { owner ->
+        if (owner.isNullOrBlank()) flowOf(emptyMap()) else bossStats.observe(owner)
+    }.map { rows ->
             // `.entries` 不能省：Map 自己没有 mapNotNull，不显式取 entries 的话
             // 编译器认不出解构出来的是什么
             rows.entries.mapNotNull { (roomId, stat) ->
@@ -131,9 +139,6 @@ class HistoryViewModel(
 
     init {
         scope.launch {
-            // 库里已有的先认下来：不然刚进页面时，已经补过的局会被当成"没补过"再打一遍
-            backfilled += bossStats.knownRoomIds()
-            bossStats.deleteOrphans()
             items.collect { list -> backfill(list) }
         }
     }
@@ -150,9 +155,15 @@ class HistoryViewModel(
         for (match in list) {
             if (done >= BACKFILL_BATCH) break
             if (!match.finished || modeOf(match.mapId) != GameMode.HUNT) continue
-            if (match.roomId in backfilled) continue
-            backfilled += match.roomId
-            bossStats.refresh(match.roomId)
+            val owner = match.ownerOpenId.takeIf { it.isNotBlank() } ?: continue
+            if (preparedOwners.add(owner)) {
+                backfilled += bossStats.knownRoomIds(owner).map { owner to it }
+                bossStats.deleteOrphans(owner)
+            }
+            val key = owner to match.roomId
+            if (key in backfilled) continue
+            backfilled += key
+            bossStats.refresh(owner, match.roomId)
             done++
         }
     }

@@ -64,7 +64,11 @@ data class ImportedMatchDto(
  * 完全重合的两件事（2226 条里各 185 条），但"打完了吗"这件事本身该由完赛时间说话，
  * 胜平负是另一个维度。
  */
-fun ImportedMatchDto.toEntity(syncedAtSec: Long = 0L): MatchEntity = MatchEntity(
+fun ImportedMatchDto.toEntity(
+    syncedAtSec: Long = 0L,
+    ownerOpenId: String = "",
+): MatchEntity = MatchEntity(
+    ownerOpenId = ownerOpenId,
     roomId = DsRoomId.toString(),
     openId = openid,
     eventTime = dtEventTime,

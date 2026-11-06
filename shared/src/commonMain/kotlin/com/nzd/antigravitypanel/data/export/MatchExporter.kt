@@ -21,9 +21,11 @@ class MatchExporter(
     suspend fun build(
         format: MatchExportFormat,
         nowSec: Long = currentEpochSeconds(),
+        /** 当前凭证 openid；空 owner 仅用于兼容导出未认领旧数据。 */
+        ownerOpenId: String = "",
     ): MatchExportFile {
-        val matches = runCatching { matchDao.all() }.getOrDefault(emptyList())
-        val cached = bossStats.snapshot()
+        val matches = runCatching { matchDao.all(ownerOpenId) }.getOrDefault(emptyList())
+        val cached = bossStats.snapshot(ownerOpenId)
         val entries = exportEntries(matches, cached)
         return MatchExportFile(
             fileName = matchExportFileName(format, nowSec),

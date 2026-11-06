@@ -3,7 +3,6 @@ package com.nzd.antigravitypanel.data.db
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
-import androidx.room.PrimaryKey
 import com.nzd.antigravitypanel.data.remote.dto.GameRecordDto
 import com.nzd.antigravitypanel.util.parseServerTime
 
@@ -19,14 +18,15 @@ import com.nzd.antigravitypanel.util.parseServerTime
  */
 @Entity(
     tableName = "matches",
+    primaryKeys = ["ownerOpenId", "roomId"],
     indices = [
+        Index(value = ["ownerOpenId"]),
         Index(value = ["eventTimeSec"]),
         Index(value = ["mapId"]),
         Index(value = ["openId"]),
     ],
 )
 data class MatchEntity(
-    @PrimaryKey
     @ColumnInfo(name = "roomId")
     val roomId: String,
     @ColumnInfo(name = "openId")
@@ -73,9 +73,12 @@ data class MatchEntity(
     /** 本地入库时间，用于排查"这条到底是哪次同步拉回来的"。 */
     @ColumnInfo(name = "syncedAtSec")
     val syncedAtSec: Long,
+    /** 凭证里的 openid；与战绩 DTO 的 [openId]（vOpenID）是两套标识。空串仅供迁移前旧数据使用。 */
+    @ColumnInfo(name = "ownerOpenId")
+    val ownerOpenId: String = "",
 )
 
-fun GameRecordDto.toEntity(syncedAtSec: Long = 0L): MatchEntity = MatchEntity(
+fun GameRecordDto.toEntity(syncedAtSec: Long = 0L, ownerOpenId: String = ""): MatchEntity = MatchEntity(
     roomId = DsRoomId,
     openId = vOpenID,
     eventTime = dtEventTime,
@@ -97,4 +100,5 @@ fun GameRecordDto.toEntity(syncedAtSec: Long = 0L): MatchEntity = MatchEntity(
     rankValue = Rank,
     finished = finished,
     syncedAtSec = syncedAtSec,
+    ownerOpenId = ownerOpenId,
 )

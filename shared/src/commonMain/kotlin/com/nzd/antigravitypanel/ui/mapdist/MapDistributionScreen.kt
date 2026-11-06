@@ -9,6 +9,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,8 +34,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -49,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import com.nzd.antigravitypanel.data.remote.dto.MapItemDto
 import com.nzd.antigravitypanel.domain.GameMode
@@ -59,14 +65,14 @@ import com.nzd.antigravitypanel.ui.component.DropFrame
 import com.nzd.antigravitypanel.ui.component.HintBlock
 import com.nzd.antigravitypanel.ui.component.dropFramePainter
 import com.nzd.antigravitypanel.ui.component.mapArtPainter
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.TiltFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.pressable
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 private val MODE_TABS = listOf(GameMode.HUNT, GameMode.TOWER, GameMode.TIME_HUNT)
@@ -95,6 +101,14 @@ private val CardScrim = Brush.verticalGradient(
 /** 收集品集齐时的进度条颜色。官方 PC 端用的就是这个绿。 */
 private val CollectionDone = Color(0xFF10B981)
 
+/**
+ * 动作结束后卡片还要在顶部多待多久（ms）。
+ *
+ * 按压回弹 / 翻面落位都是几百毫秒的动画，结束那一刻卡片仍抻在框外；
+ * 立刻降层级的话，收尾途中会再被相邻卡片盖一下（肉眼看到的是"抖一下"）。
+ */
+private const val RaiseHoldMillis = 380L
+
 /** 未解锁的掉落物图标去色用。提到顶层，免得每帧新建一个矩阵。 */
 private val GrayscaleFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 
@@ -121,6 +135,7 @@ fun MapDistributionScreen(
     val officialLoaded by viewModel.officialLoaded.collectAsState()
     val officialError by viewModel.officialError.collectAsState()
     val seasonSelection by viewModel.seasonSelection.collectAsState()
+    val hideCompleted by viewModel.hideCompleted.collectAsState()
     val flipped = remember { mutableStateSetOf<Int>() }
 
     // 掉落物一次全拉回来。卡片正面要显示「核心收集进度 x / y」，
@@ -189,10 +204,13 @@ fun MapDistributionScreen(
         if (sections.isEmpty()) {
             item(key = "season-empty") {
                 HintBlock(
-                    text = if (seasonSelection?.isEmpty() == true) {
-                        "所有赛季都取消了，点右上角图标至少勾一个"
-                    } else {
-                        "这个模式还没有地图"
+                    text = when {
+                        seasonSelection?.isEmpty() == true ->
+                            "所有赛季都取消了，点右上角图标至少勾一个"
+                        // 筛掉了整个模式：这时候说"还没有地图"就是骗人，图是有的，全毕业了
+                        hideCompleted ->
+                            "这个模式的地图都毕业了 —— 点右上角图标关掉「仅显示未毕业的地图」"
+                        else -> "这个模式还没有地图"
                     },
                 )
             }
@@ -262,44 +280,84 @@ private fun MapCard(
     )
     val density = LocalDensity.current.density
 
-    Card(
+    // ---- 动画期间的层级 ----
+    // 这一页有**两段** 3D 变换会抻出卡片自己的布局框：
+    // 1. 按压的 Tilt（旋转轴压在按下去的那个角上，靠近镜头的半边翘出来）；
+    // 2. 翻面的 rotationY（带 cameraDistance，转到侧面时投影比卡片本身宽）。
+    // LazyColumn 里**后画的 item 盖在先画的之上**，这两段里超出边界的部分都会被
+    // 相邻那张卡连同两卡之间的空白一起盖掉 —— 所以只要还"在动"，就先抬到同级最上层。
+    //
+    // Card 内部那个交互源外面拿不到，所以 Tilt 改成自己挂 pressable + TiltFeedback
+    // （同一个类，观感不变），这样才拿得到 press / release。
+    val interactionSource = remember { MutableInteractionSource() }
+    var pressed by remember { mutableStateOf(false) }
+    // 翻转中途：0 → 180 的两端是静止位，中间任意一帧都要抬着
+    val rotating = rotation > 0.5f && rotation < 179.5f
+    val elevated = pressed || rotating
+    // 降层级比动画收尾再晚一点：回弹 / 落位那 400ms 里卡片还在往外抻，
+    // 提前降下去的话，收尾那一瞬间又会被切一下
+    var raised by remember { mutableStateOf(false) }
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> pressed = true
+                is PressInteraction.Release, is PressInteraction.Cancel -> pressed = false
+                else -> Unit
+            }
+        }
+    }
+    LaunchedEffect(elevated) {
+        if (elevated) {
+            raised = true
+        } else {
+            delay(RaiseHoldMillis)
+            raised = false
+        }
+    }
+
+    // 这里不能用 Miuix Card：即使颜色透明，它内部的 squircleSurface 仍会给整卡
+    // 加一层静止的离屏轮廓遮罩，旋转面越出原始布局框时就会被它切掉。
+    // 普通 Box 不裁内容；圆角只由 MapCardFace 自己负责，点击与 Tilt 行为保持不变。
+    val clickInteractionSource = remember { MutableInteractionSource() }
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(MapCardHeight)
-            // 底图要贴到卡片的圆角上，得自己裁一次：
-            // Miuix 的 Card 只负责画自己的背景，不保证把内容裁进圆角
-            .clip(RoundedCornerShape(CardCornerRadius)),
-        cornerRadius = CardCornerRadius,
-        // 卡片不再有底色，整张脸就是底图 + 压暗层。
-        // 给个表面色反而会把底图盖掉，看起来像"图没加载出来"。
-        colors = CardDefaults.defaultColors(color = Color.Transparent),
-        pressFeedbackType = PressFeedbackType.Tilt,
-        onClick = onFlip,
+            .zIndex(if (raised) 1f else 0f)
+            .pressable(
+                interactionSource = interactionSource,
+                indication = remember { TiltFeedback() },
+                delay = null,
+            )
+            .combinedClickable(
+                // 与 Tilt 各用一个交互源，避免一次按压向同一个源发两组事件。
+                interactionSource = clickInteractionSource,
+                indication = null,
+                onClick = onFlip,
+            ),
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // 只画朝向自己的那一面。Compose 没有 backface-visibility，
-            // 两面都画的话背面内容会镜像透出来
-            val showingFront = rotation <= 90f
-            MapCardFace(
-                mapId = entry.mapId,
-                angle = if (showingFront) rotation else rotation - 180f,
-                density = density,
-                blurred = !showingFront,
-            ) {
-                if (showingFront) {
-                    StatFace(
-                        entry = entry,
-                        difficultyColumns = difficultyColumns,
-                        collection = drops,
-                    )
-                } else {
-                    DropFace(
-                        entry = entry,
-                        drops = drops.orEmpty(),
-                        dropsLoaded = dropsLoaded,
-                        dropError = dropError,
-                    )
-                }
+        // 只画朝向自己的那一面。Compose 没有 backface-visibility，
+        // 两面都画的话背面内容会镜像透出来
+        val showingFront = rotation <= 90f
+        MapCardFace(
+            mapId = entry.mapId,
+            angle = if (showingFront) rotation else rotation - 180f,
+            density = density,
+            blurred = !showingFront,
+        ) {
+            if (showingFront) {
+                StatFace(
+                    entry = entry,
+                    difficultyColumns = difficultyColumns,
+                    collection = drops,
+                )
+            } else {
+                DropFace(
+                    entry = entry,
+                    drops = drops.orEmpty(),
+                    dropsLoaded = dropsLoaded,
+                    dropError = dropError,
+                )
             }
         }
     }
@@ -326,7 +384,10 @@ private fun MapCardFace(
                 // 不给相机距离就是正交投影，翻转看起来像"被压扁"而不是转过去。
                 // 乘 density 是因为这个值按 px 算，不乘的话在 3x 屏上会贴到脸上
                 cameraDistance = 14f * density
-            },
+            }
+            // 圆角必须属于旋转面本身：放在外层 Card 上只会得到一块静止的圆角窗口，
+            // 窗口里的方形面转过来仍会露出直角。这里先裁圆角，再由外层做 3D 变换。
+            .clip(RoundedCornerShape(CardCornerRadius)),
     ) {
         val art = mapArtPainter(mapId)
         if (art != null) {

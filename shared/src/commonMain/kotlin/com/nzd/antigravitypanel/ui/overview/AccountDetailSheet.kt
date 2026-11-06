@@ -1,12 +1,21 @@
 package com.nzd.antigravitypanel.ui.overview
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -21,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
+import com.nzd.antigravitypanel.ui.component.MaterialGlyphs
 import com.nzd.antigravitypanel.ui.component.copyToClipboard
 import com.nzd.antigravitypanel.ui.component.rememberTextFilePicker
 import com.nzd.antigravitypanel.ui.theme.isInDarkTheme
@@ -70,6 +80,7 @@ fun AccountDetailSheet(
     error: String? = null,
     onSave: (String) -> Unit,
     onLogout: () -> Unit,
+    onManageAccounts: () -> Unit,
     onScanClick: () -> Unit,
     onImportHar: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -103,16 +114,25 @@ fun AccountDetailSheet(
         show = show,
         title = "账号详细信息",
         allowDismiss = !saving,
-        // 左上角「导入抓包」。和下面那个输入框是同一件事的两种填法：
-        // 抓包本来就是获取 Cookie 的正路，让用户从几百字符里手抄一遍纯属折磨。
-        // 只摆一个图标（和右侧扫码对称），弹层标题栏就那么高，塞文字按钮会把标题挤掉。
+        // 已登录时左上角进入多账号；未登录仍保留 HAR 快捷入口。
+        // 已登录的 HAR 按钮挪到底部退出按钮旁，和签到凭证弹层使用同款蓝色方形按钮。
         startAction = {
-            IconButton(onClick = { pickHar() }, enabled = !saving) {
-                Icon(
-                    imageVector = MiuixIcons.Import,
-                    contentDescription = "从 HAR 文件导入 Cookie",
-                    tint = MiuixTheme.colorScheme.onSurface,
-                )
+            if (loggedIn) {
+                IconButton(onClick = onManageAccounts, enabled = !saving) {
+                    Icon(
+                        imageVector = MaterialGlyphs.PersonAddAlt1,
+                        contentDescription = "多账号管理",
+                        tint = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
+            } else {
+                IconButton(onClick = { pickHar() }, enabled = !saving) {
+                    Icon(
+                        imageVector = MiuixIcons.Import,
+                        contentDescription = "从 HAR 文件导入 Cookie",
+                        tint = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
             }
         },
         // 扫码登录的入口。登录态和未登录态都给：扫码本来就是"没凭证时最快的上手方式"，
@@ -131,6 +151,9 @@ fun AccountDetailSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                )
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -201,21 +224,44 @@ fun AccountDetailSheet(
                 )
             }
 
-            // 退出登录放最下面，并且只在真的有凭证时给出——
-            // 已经退出去了还摆一个"退出"按钮，只会让人以为自己还登着
+            // HAR 与退出并排固定在内容末尾。52dp 行高让左侧按钮正好保持 1:1。
             if (loggedIn) {
-                Button(
-                    enabled = !saving,
-                    modifier = Modifier.fillMaxWidth(),
-                    // 底色照 error 走，文案用纯白：默认的字数色是 onSecondaryVariant，
-                    // 压在红底上偏灰，看着像"禁用态"
-                    colors = ButtonDefaults.buttonColors(
-                        color = MiuixTheme.colorScheme.error,
-                        contentColor = Color.White,
-                    ),
-                    onClick = onLogout,
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("退出登录")
+                    Button(
+                        modifier = Modifier.fillMaxHeight().aspectRatio(1f),
+                        minWidth = 0.dp,
+                        minHeight = 0.dp,
+                        insideMargin = PaddingValues(0.dp),
+                        enabled = !saving,
+                        colors = ButtonDefaults.buttonColors(
+                            color = MiuixTheme.colorScheme.primary,
+                            contentColor = Color.White,
+                        ),
+                        onClick = { pickHar() },
+                    ) {
+                        Icon(
+                            imageVector = MiuixIcons.Import,
+                            contentDescription = "从 HAR 文件导入 Cookie",
+                            modifier = Modifier.size(22.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    Button(
+                        enabled = !saving,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        minHeight = 0.dp,
+                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            color = MiuixTheme.colorScheme.error,
+                            contentColor = Color.White,
+                        ),
+                        onClick = onLogout,
+                    ) {
+                        Text("退出登录")
+                    }
                 }
             }
         }
@@ -243,8 +289,9 @@ private fun HintCard(loggedIn: Boolean) {
     ) {
         Text(
             text = if (loggedIn) {
-                "Cookie 只保存在本机（加密），不会上传到任何服务器；" +
-                    "退出登录只删本机凭证，已经累积的对局不受影响。上面的 ACCOUNT ID 点击即可复制。"
+                "Cookie 加密保存在本机，不会上传到任何服务器；" +
+                    "退出登录只删除本机凭证，已经累积的对局不受影响。" +
+                    "若要删除本地数据请前往设置页手动删除。"
             } else {
                 "已退出登录。粘贴一条新的 Cookie 后点保存即可重新识别。"
             },

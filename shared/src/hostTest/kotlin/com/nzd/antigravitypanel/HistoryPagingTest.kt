@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -48,23 +49,31 @@ class HistoryPagingTest {
         val source = MutableStateFlow(matches)
 
         override suspend fun upsertAll(entities: List<MatchEntity>) = Unit
-        override suspend fun knownStates(roomIds: List<String>): List<MatchKnownRow> = emptyList()
-        override suspend fun find(roomId: String): MatchEntity? = null
+        override suspend fun knownStates(ownerOpenId: String, roomIds: List<String>): List<MatchKnownRow> = emptyList()
+        override suspend fun find(ownerOpenId: String, roomId: String): MatchEntity? = null
         override suspend fun previousOf(
+            ownerOpenId: String,
             mapId: Int,
             subModeType: Int,
             beforeSec: Long,
         ): MatchEntity? = null
 
-        override suspend fun page(limit: Int, offset: Int): List<MatchEntity> = emptyList()
-        override fun observeAll(): Flow<List<MatchEntity>> = source
-        override suspend fun all(): List<MatchEntity> = source.value
-        override fun observeCount(): Flow<Long> = emptyFlow()
-        override suspend fun count(): Long = source.value.size.toLong()
-        override suspend fun oldestTimeSec(): Long? = null
-        override suspend fun newestTimeSec(): Long? = null
-        override suspend fun deleteOlderThan(cutoffSec: Long): Int = 0
-        override suspend fun clear() = Unit
+        override suspend fun page(ownerOpenId: String, limit: Int, offset: Int): List<MatchEntity> = emptyList()
+        override fun observeAll(ownerOpenId: String): Flow<List<MatchEntity>> =
+            source.map { rows -> rows.filter { it.ownerOpenId == ownerOpenId } }
+        override suspend fun all(ownerOpenId: String): List<MatchEntity> =
+            source.value.filter { it.ownerOpenId == ownerOpenId }
+        override fun observeCount(ownerOpenId: String): Flow<Long> = emptyFlow()
+        override suspend fun count(ownerOpenId: String): Long =
+            source.value.count { it.ownerOpenId == ownerOpenId }.toLong()
+        override suspend fun oldestTimeSec(ownerOpenId: String): Long? = null
+        override suspend fun newestTimeSec(ownerOpenId: String): Long? = null
+        override suspend fun deleteOlderThan(ownerOpenId: String, cutoffSec: Long): Int = 0
+        override suspend fun clear(ownerOpenId: String) = Unit
+        override suspend fun claimLegacyMatches(ownerOpenId: String): Int = 0
+        override suspend fun claimLegacyBossStats(ownerOpenId: String): Int = 0
+        override suspend fun deleteUnclaimedMatches(): Int = 0
+        override suspend fun deleteUnclaimedBossStats(): Int = 0
     }
 
     /**
@@ -74,11 +83,11 @@ class HistoryPagingTest {
     private class FakeBossStatDao : MatchBossStatDao {
         override suspend fun upsert(item: MatchBossStatEntity) = Unit
         override suspend fun upsertAll(items: List<MatchBossStatEntity>) = Unit
-        override fun observeAll(): Flow<List<MatchBossStatEntity>> = emptyFlow()
-        override suspend fun all(): List<MatchBossStatEntity> = emptyList()
-        override suspend fun knownRoomIds(): List<String> = emptyList()
-        override suspend fun deleteOrphans(): Int = 0
-        override suspend fun clear() = Unit
+        override fun observeAll(ownerOpenId: String): Flow<List<MatchBossStatEntity>> = emptyFlow()
+        override suspend fun all(ownerOpenId: String): List<MatchBossStatEntity> = emptyList()
+        override suspend fun knownRoomIds(ownerOpenId: String): List<String> = emptyList()
+        override suspend fun deleteOrphans(ownerOpenId: String): Int = 0
+        override suspend fun clear(ownerOpenId: String) = Unit
     }
 
     private fun match(index: Int) = MatchEntity(
@@ -107,6 +116,7 @@ class HistoryPagingTest {
         rankValue = 1,
         finished = true,
         syncedAtSec = 0L,
+        ownerOpenId = "owner-a",
     )
 
     /**
@@ -134,6 +144,7 @@ class HistoryPagingTest {
             MatchMarks(FakeStore()),
             MutableStateFlow(GameConfigDto()),
             MatchBossStats(NzApi(), FakeBossStatDao()),
+            MutableStateFlow("owner-a"),
         )
         val scope = vm.warmUp()
         try {
@@ -179,4 +190,39 @@ class HistoryPagingTest {
         vm.setFilter(MatchFilter(mode = GameMode.HUNT))
         assertEquals(20, vm.awaitSize(20).size)
     }
+
+    @Test
+    fun `同roomId在AB账号间切换且空账号为空`() = runBlocking {
+        val owner = MutableStateFlow<String?>("owner-a")
+        val vm = HistoryViewModel(
+            FakeDao(
+                listOf(
+                    match(1).copy(roomId = "shared", ownerOpenId = "owner-a", score = 100),
+                    match(2).copy(roomId = "shared", ownerOpenId = "owner-b", score = 200),
+                ),
+            ),
+            MatchMarks(FakeStore()),
+            MutableStateFlow(GameConfigDto()),
+            MatchBossStats(NzApi(), FakeBossStatDao()),
+            owner,
+        )
+        val scope = vm.warmUp()
+        try {
+            val a = withTimeout(2_000) { itemsFirstOwner(vm, "owner-a") }
+            assertEquals(100L, a.score)
+
+            owner.value = "owner-b"
+            val b = withTimeout(2_000) { itemsFirstOwner(vm, "owner-b") }
+            assertEquals(200L, b.score)
+
+            owner.value = null
+            assertEquals(emptyList(), withTimeout(2_000) { vm.items.first { it.isEmpty() } })
+        } finally {
+            scope.cancel()
+            vm.close()
+        }
+    }
+
+    private suspend fun itemsFirstOwner(vm: HistoryViewModel, owner: String): MatchEntity =
+        vm.items.first { rows -> rows.singleOrNull()?.ownerOpenId == owner }.single()
 }

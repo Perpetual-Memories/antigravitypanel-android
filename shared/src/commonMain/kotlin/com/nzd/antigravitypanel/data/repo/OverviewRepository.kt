@@ -3,6 +3,7 @@ package com.nzd.antigravitypanel.data.repo
 import com.nzd.antigravitypanel.data.credential.MiniProgramCredential
 import com.nzd.antigravitypanel.data.db.MatchDao
 import com.nzd.antigravitypanel.data.db.MatchEntity
+import com.nzd.antigravitypanel.data.remote.CookieExpiredException
 import com.nzd.antigravitypanel.data.remote.NzApi
 import com.nzd.antigravitypanel.data.remote.dto.GameDetailDto
 import com.nzd.antigravitypanel.data.remote.dto.GameRecordDto
@@ -152,31 +153,39 @@ class OverviewRepository(
         return total
     }
 
+    /**
+     * 拉一轮概览。
+     *
+     * ⚠️ **凭证失效能往上抛**（[CookieExpiredException]），其余错误逐个吞掉。
+     * 概览是「Cookie 状态卡」的唯一数据源，这里把失效也吞了的话，
+     * 凭证明明已经过期（签到页那边已经在报「凭证失效」），状态卡还会写「已识别」。
+     * 见 [tolerateUnlessExpired]。
+     */
     suspend fun load(cookie: MiniProgramCredential, nowSec: Long): OverviewSnapshot {
         api.updateCookie(cookie)
-        val stats = runCatching { api.userStats() }.getOrDefault(UserStatsDto())
+        // 这一发是凭证的**主判据**：它都报失效，后面几路没有继续打的意义
+        val stats = tolerateUnlessExpired { api.userStats() } ?: UserStatsDto()
         // 近五场统计和账号名片出自**同一批** `center.game.detail`：
         // 分开拉等于把同样的几局逐条请求两遍（每局详情都是一次独立的网络往返）。
-        val details = runCatching { loadRecentDetails() }.getOrDefault(emptyList())
-        val activities = runCatching {
+        val details = tolerateUnlessExpired { loadRecentDetails(cookie.openid) } ?: emptyList()
+        val activities = tolerateUnlessExpired {
             upcomingActivities(parseCalendar(api.distCalendar().content), nowSec)
-        }.getOrDefault(emptyList())
+        } ?: emptyList()
         if (activities.isEmpty()) {
             // 这条只在调试期有用：活动解析失败是静默的（它不该让整页挂掉），
             // 但"静默"很容易变成"永远查不出为什么是空的"，至少留个能 grep 的痕迹。
             println("[Calendar] no activity parsed from dist.contents")
         }
         // 首胜宝箱单独一个接口，挂了只影响那一个红点，不该拖累整页
-        val firstWin = runCatching { api.userDay().firstWinLeftCount }
-            .getOrNull()
+        val firstWin = tolerateUnlessExpired { api.userDay().firstWinLeftCount }
             ?.coerceIn(0, FIRST_WIN_CHEST_LIMIT)
         // 名片优先从近五场那批详情里抠（同一批请求，不多打一次网络）；
         // 扣不到再按"任意模式"单独补一遍 —— 见 [loadSelfDetails] 里为什么不能只盯猎场
         val account = accountProfileOf(details, cookie.openid)
-            ?: runCatching { accountProfileOf(loadSelfDetails(), cookie.openid) }.getOrNull()
+            ?: tolerateUnlessExpired { accountProfileOf(loadSelfDetails(cookie.openid), cookie.openid) }
         // 赛季等级：`center.user.stats` 里**没有**这一项，得单独拉万象武器列表。
         // 挂了只影响顶栏那一个 `LV.n`，不该拖累整页。
-        val seasonLevel = runCatching { api.mweaponList().seasonLevel }.getOrDefault(0)
+        val seasonLevel = tolerateUnlessExpired { api.mweaponList().seasonLevel } ?: 0
         return OverviewSnapshot(
             stats = stats,
             recent = summarizeRecent(details),
@@ -198,8 +207,8 @@ class OverviewRepository(
      * 但评分 / MVP / 击杀 / 胜场都在库里，照样能凑出一份近五场，
      * 所以这里 [OverviewSnapshot.recent] 不再是 null。
      */
-    suspend fun loadLocal(): OverviewSnapshot {
-        val all = dao.page(Int.MAX_VALUE, 0)
+    suspend fun loadLocal(ownerOpenId: String = ""): OverviewSnapshot {
+        val all = dao.page(ownerOpenId, Int.MAX_VALUE, 0)
         var hunt = 0
         var tower = 0
         var timeHunt = 0
@@ -236,15 +245,18 @@ class OverviewRepository(
      * 和 NZM 的做法一致：Boss 伤害 / 金币 / 昵称头像都只存在于详情接口里，列表接口没有。
      * 单局失败就跳过那一局，不整体失败——5 局里有 1 局 404 不该让用户看不到剩下 4 局。
      */
-    private suspend fun loadRecentDetails(limit: Int = RECENT_LIMIT): List<GameDetailDto> {
-        val candidates = dao.page(CANDIDATE_SCAN_SIZE, 0)
+    private suspend fun loadRecentDetails(
+        ownerOpenId: String,
+        limit: Int = RECENT_LIMIT,
+    ): List<GameDetailDto> {
+        val candidates = dao.page(ownerOpenId, CANDIDATE_SCAN_SIZE, 0)
             .filter { it.finished && modeOf(it.mapId) == GameMode.HUNT }
             .take(limit)
         if (candidates.isEmpty()) return emptyList()
 
         val details = ArrayList<GameDetailDto>(candidates.size)
         for (match in candidates) {
-            val detail = runCatching { api.gameDetail(match.roomId) }.getOrNull() ?: continue
+            val detail = tolerateUnlessExpired { api.gameDetail(match.roomId) } ?: continue
             details.add(detail)
         }
         return details
@@ -258,15 +270,18 @@ class OverviewRepository(
      * 打了一半的局也有。只盯着猎场的话，只玩塔防（或者最近全是塔防）的账号
      * 永远拿不到头像和昵称，顶栏就白摆一格。
      */
-    private suspend fun loadSelfDetails(limit: Int = SELF_DETAIL_LIMIT): List<GameDetailDto> {
-        val roomIds = dao.page(CANDIDATE_SCAN_SIZE, 0)
+    private suspend fun loadSelfDetails(
+        ownerOpenId: String,
+        limit: Int = SELF_DETAIL_LIMIT,
+    ): List<GameDetailDto> {
+        val roomIds = dao.page(ownerOpenId, CANDIDATE_SCAN_SIZE, 0)
             .take(limit)
             .map { it.roomId }
             .ifEmpty { latestRoomIdsFromServer(limit) }
 
         val details = ArrayList<GameDetailDto>(roomIds.size)
         for (roomId in roomIds) {
-            val detail = runCatching { api.gameDetail(roomId) }.getOrNull() ?: continue
+            val detail = tolerateUnlessExpired { api.gameDetail(roomId) } ?: continue
             details.add(detail)
         }
         return details
@@ -280,12 +295,12 @@ class OverviewRepository(
      * 要用户手动点一次刷新才出来。
      */
     private suspend fun latestRoomIdsFromServer(limit: Int): List<String> =
-        runCatching {
+        tolerateUnlessExpired {
             api.gameList(page = 1, limit = limit.coerceAtLeast(3), mapMode = "猎场")
                 .gameList
                 .map { it.DsRoomId }
                 .filter { it.isNotBlank() }
-        }.getOrDefault(emptyList())
+        } ?: emptyList()
 
     companion object {
         /**
@@ -326,6 +341,30 @@ class OverviewRepository(
         const val FIRST_WIN_CHEST_LIMIT = 7
     }
 }
+
+/**
+ * 概览的逐项容错，**唯一例外是凭证失效**。
+ *
+ * 概览混了好几个接口，任何一项挂了都不该把整页打空 —— 所以普通错误吞掉，
+ * 这一项退回默认值，其余照常显示。但 [CookieExpiredException] 必须原样往上抛：
+ *
+ * - 概览页是「Cookie 状态卡」的**唯一数据源**（[com.nzd.antigravitypanel.ui.overview.CookieStatus]）；
+ * - 之前这里一律 `runCatching`，于是凭证明明已经过期（签到页那边已经在报「凭证失效」），
+ *   状态卡还照常写「已识别」，用户看着就是"app 说我的 cookie 好好的，可什么都拉不到"。
+ *
+ * 这几个接口都在 `IdeChart.Main` 那一组，用的是同一串 cookie，
+ * 所以任何一路回 `iRet != 0` 都足以判定整份凭证失效，不存在"这个接口抖了"的误判。
+ *
+ * 写成顶层 `inline` 是为了能脱离 ViewModel / 网络单测（见 `OverviewExpiryTest`）。
+ */
+internal inline fun <T> tolerateUnlessExpired(block: () -> T): T? =
+    try {
+        block()
+    } catch (e: CookieExpiredException) {
+        throw e
+    } catch (t: Throwable) {
+        null
+    }
 
 /**
  * 用本地库算一份近五场。给导入 JSON / 未登录的场景用。

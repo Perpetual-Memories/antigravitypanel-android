@@ -4,6 +4,23 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+/**
+ * 读 HAR 用的 JSON 实例：**必须宽松**。
+ *
+ * `ignoreUnknownKeys` 不是可选项：真实 HAR 的 `log` 带 `version` / `creator`，
+ * `entries[]` 里还有 `startedDateTime` / `response` / `timings` 几十个字段，
+ * 而这里只声明了要找凭证的那几个。用默认的 `Json`（严格模式）会直接抛 Unknown key，
+ * 整份文件被当成"不是 HAR" —— 表现就是导入真实抓包（Reqable / Charles / Chrome
+ * 导出的都算）时永远提示「这个文件读不出 HAR 结构」。
+ *
+ * 小程序凭证那一路以前吃的就是默认实例，所以只有它坏；签到那三个扫描器一直用的是
+ * 这个文件的宽松实例，才没露馅。两处现在共用同一个，别再各写一份。
+ */
+private val HarJson = Json {
+    ignoreUnknownKeys = true
+    isLenient = true
+}
+
 /** 弹层要的是哪一套凭证。两块签到各要各的，不能混。 */
 enum class SignInCredentialKind {
     /** QQ 游戏中心周签到礼包：要 `uin` + `p_skey` 那条 cookie。 */
@@ -112,7 +129,7 @@ data class MiniProgramHarScan(
  */
 fun scanMiniProgramCookie(text: String): MiniProgramHarScan {
     if (text.isBlank()) return MiniProgramHarScan()
-    val root = runCatching { Json.decodeFromString<HarRoot>(text) }.getOrNull()
+    val root = runCatching { HarJson.decodeFromString<HarRoot>(text) }.getOrNull()
     val entries = root?.log?.entries ?: return MiniProgramHarScan()
 
     for (entry in entries) {
@@ -154,14 +171,9 @@ private fun cookieCandidates(request: HarRequest?): List<String> {
 }
 
 object HarCredentialScanner {
-    private val Json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
     fun scan(text: String): HarCredentialScan {
         if (text.isBlank()) return HarCredentialScan()
-        val root = runCatching { Json.decodeFromString<HarRoot>(text) }.getOrNull()
+        val root = runCatching { HarJson.decodeFromString<HarRoot>(text) }.getOrNull()
         val entries = root?.log?.entries
         // entryCount 也要区分：文件根本不是 JSON 时返回 0，别把"解析失败"说成"没找到凭证"
         if (entries == null) return HarCredentialScan()

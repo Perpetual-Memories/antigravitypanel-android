@@ -131,6 +131,17 @@ class NzApi(
     suspend fun mapItemList(mapIds: List<Int> = emptyList()): MapItemListDto =
         call(IdeMethod.MapItemList, "mapID" to mapIds)
 
+    /**
+     * 挂件图鉴。地图分布页靠它补三件 `center.map.item.list` **不下发**的隐藏掉落物
+     * （白蚁背包-幻巢 / AI精灵-晶耀 / AI精灵-鎏光）—— 那三件在服务端属于"装扮"，
+     * 只有这里带 `owned`，官方 PC 端也是从这儿取的（见 `domain/MapLocalDrops.kt`）。
+     *
+     * `seasonID` 显式传当前赛季（PC 端写死 4）：不传的话会走 [activeSeason] 那套探测，
+     * 白拉一遍对局列表；而且挂件表跟"这个号有没有打过对局"无关，不该被探测结果左右。
+     */
+    suspend fun collectionPendant(seasonID: Int = config.seasonID): CollectionListDto =
+        call(IdeMethod.CollectionPendant, seasonID = seasonID)
+
     // ---------------- 配置 ----------------
 
     /**

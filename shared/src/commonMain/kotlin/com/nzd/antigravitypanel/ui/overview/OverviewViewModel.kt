@@ -47,6 +47,19 @@ enum class CookieStatus(val label: String, val glyph: StatusGlyph) {
     IMPORTED_JSON("已导入json", StatusGlyph.CHECK),
 }
 
+/**
+ * 这一轮拉失败之后，状态卡该显示什么。
+ *
+ * **只有 [CookieExpiredException] 会改状态**：网络抖动 / 接口结构变了都只是"这一轮没拉到"，
+ * 凭证本身还没被判定为死，这时候把「已识别」改成「过期」等于诬告。
+ * 反过来，失效是**事后**才能知道的（官方不下发过期时间），所以这次结论要盖住上一次的
+ * 「已识别」，不然用户会一直看着一张绿卡却什么都刷不出来。
+ *
+ * 抽成顶层纯函数是为了能单测——[OverviewViewModel] 要真 `NzApi` 才造得出来。
+ */
+internal fun cookieStatusAfterFailure(current: CookieStatus, error: Throwable): CookieStatus =
+    if (error is CookieExpiredException) CookieStatus.EXPIRED else current
+
 data class OverviewUiState(
     val cookieStatus: CookieStatus = CookieStatus.MISSING,
     val stats: UserStatsDto = UserStatsDto(),
@@ -230,7 +243,7 @@ class OverviewViewModel(
                 }
                 persist(CookieStatus.OK)
             } catch (e: Throwable) {
-                val status = if (e is CookieExpiredException) CookieStatus.EXPIRED else _state.value.cookieStatus
+                val status = cookieStatusAfterFailure(_state.value.cookieStatus, e)
                 _state.value = _state.value.copy(
                     cookieStatus = status,
                     loading = false,
@@ -283,13 +296,26 @@ class OverviewViewModel(
      * 今日机甲战局数。失败时**保留上一次的值**（可能是缓存里那份），不把卡片打回 0 ——
      * 一次网络抖动就把"今天打了 12 局"变成"0 局"比慢更难受。
      *
+     * ⚠️ 但**凭证失效是例外**：这一路也是带凭证发的，它报 `iRet != 0` 就等于整份凭证死了，
+     * 状态卡必须跟着改成「过期」。只吞不报的话，停在「今日机甲战」这一项的用户
+     * 永远看不到过期提示（概览那一轮可能是更早、凭证还没过期时跑完的）。
+     *
      * ⚠️ 数完要自己落一次盘：这是唯一能把新数字写进缓存的地方。
      * [refresh] 里那次 [persist] 在另一个协程上，跟它抢的话存下来的多半还是旧值。
      */
     private suspend fun loadMechaToday() {
-        val count = runCatching { repository.loadMechaTodayCount(currentEpochSeconds()) }
-            .getOrNull()
-        _state.value = _state.value.copy(mechaTodayCount = count ?: _state.value.mechaTodayCount)
+        try {
+            val count = repository.loadMechaTodayCount(currentEpochSeconds())
+            _state.value = _state.value.copy(mechaTodayCount = count)
+        } catch (e: CookieExpiredException) {
+            _state.value = _state.value.copy(
+                cookieStatus = cookieStatusAfterFailure(_state.value.cookieStatus, e),
+                cookieVerifying = false,
+                error = describeSyncError(e),
+            )
+        } catch (e: Throwable) {
+            // 普通失败：保留上一次的数字，什么都不动
+        }
         persist()
     }
 

@@ -38,7 +38,16 @@ class BackupImporter(
      * @throws IllegalArgumentException 不是本应用的包、格式版本太新、或者内容损坏。
      *   消息是直接给用户看的中文，调用方原样展示即可。
      */
-    suspend fun import(bytes: ByteArray): BackupImportResult {
+    /** 明确兼容入口：只把对局写到未认领的 owner=""，登录后仍须走 claimLegacyData。 */
+    suspend fun import(bytes: ByteArray): BackupImportResult = importInternal(bytes, ownerOpenId = "")
+
+    /** 把旧格式单账号数据包归入 [ownerOpenId]，不会读取或覆盖其他账号的同 roomId 行。 */
+    suspend fun import(bytes: ByteArray, ownerOpenId: String): BackupImportResult {
+        require(ownerOpenId.isNotBlank()) { "导入数据包需要当前凭证 openid" }
+        return importInternal(bytes, ownerOpenId)
+    }
+
+    private suspend fun importInternal(bytes: ByteArray, ownerOpenId: String): BackupImportResult {
         val files = unpackZip(bytes)
 
         val manifestRaw = files[FILE_MANIFEST]?.decodeText()
@@ -60,14 +69,14 @@ class BackupImporter(
             .filter { it.roomId.isNotBlank() }
             .distinctBy { it.roomId }
         matches.chunked(UPSERT_CHUNK_SIZE).forEach { chunk ->
-            matchDao.upsertAll(chunk.map { it.toEntity() })
+            matchDao.upsertAll(chunk.map { it.toEntity(ownerOpenId) })
         }
 
         val details = decodeList<BackupMatchDetail>(files, FILE_MATCH_DETAILS)
             .filter { it.roomId.isNotBlank() }
             .distinctBy { it.roomId }
         details.chunked(UPSERT_CHUNK_SIZE).forEach { chunk ->
-            bossStatDao.upsertAll(chunk.map { it.toEntity() })
+            bossStatDao.upsertAll(chunk.map { it.toEntity(ownerOpenId) })
         }
 
         val configs = decodeList<BackupConfig>(files, FILE_CONFIG)

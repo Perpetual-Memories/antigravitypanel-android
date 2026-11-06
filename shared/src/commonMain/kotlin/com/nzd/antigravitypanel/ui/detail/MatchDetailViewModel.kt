@@ -44,6 +44,7 @@ class MatchDetailViewModel(
      * 否则那两个标签只能全靠历史页自己后台补。
      */
     private val bossStats: MatchBossStats,
+    private val ownerOpenId: StateFlow<String?> = MutableStateFlow(null),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -53,12 +54,17 @@ class MatchDetailViewModel(
     fun load(roomId: String) {
         scope.launch {
             _state.value = MatchDetailUiState(loading = true)
-            val match = dao.find(roomId)
-            val previous = match?.let { dao.previousOf(it.mapId, it.subModeType, it.eventTimeSec) }
+            val owner = ownerOpenId.value?.takeIf { it.isNotBlank() }
+            if (owner == null) {
+                _state.value = MatchDetailUiState(loading = false)
+                return@launch
+            }
+            val match = dao.find(owner, roomId)
+            val previous = match?.let { dao.previousOf(owner, it.mapId, it.subModeType, it.eventTimeSec) }
             try {
                 val detail = api.gameDetail(roomId)
                 // 记缓存失败无所谓（标签少显示一个而已），不该让详情页跟着挂
-                bossStats.record(roomId, detail)
+                bossStats.record(owner, roomId, detail)
                 _state.value = MatchDetailUiState(
                     loading = false,
                     match = match,

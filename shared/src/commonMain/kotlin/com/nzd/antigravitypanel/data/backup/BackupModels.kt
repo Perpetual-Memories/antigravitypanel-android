@@ -128,6 +128,8 @@ object BackupKeys {
      */
     val credentials: List<String> = listOf(
         StoreKey.COOKIE_RAW,
+        StoreKey.ACCOUNTS_V1,
+        StoreKey.ACTIVE_ACCOUNT_OPENID,
         StoreKey.QQ_COOKIE_RAW,
         StoreKey.XINYUE_CREDENTIAL_RAW,
         StoreKey.SUPERCORE_CREDENTIAL_RAW,
@@ -240,7 +242,7 @@ fun MatchEntity.toBackupMatch(): BackupMatch = BackupMatch(
     syncedAtSec = syncedAtSec,
 )
 
-fun BackupMatch.toEntity(): MatchEntity = MatchEntity(
+fun BackupMatch.toEntity(ownerOpenId: String = ""): MatchEntity = MatchEntity(
     roomId = roomId,
     openId = openId,
     eventTime = eventTime,
@@ -262,6 +264,7 @@ fun BackupMatch.toEntity(): MatchEntity = MatchEntity(
     rankValue = rank,
     finished = finished,
     syncedAtSec = syncedAtSec,
+    ownerOpenId = ownerOpenId,
 )
 
 fun MatchBossStatEntity.toBackupDetail(): BackupMatchDetail = BackupMatchDetail(
@@ -273,13 +276,14 @@ fun MatchBossStatEntity.toBackupDetail(): BackupMatchDetail = BackupMatchDetail(
     payloadJson = payloadJson,
 )
 
-fun BackupMatchDetail.toEntity(): MatchBossStatEntity = MatchBossStatEntity(
+fun BackupMatchDetail.toEntity(ownerOpenId: String = ""): MatchBossStatEntity = MatchBossStatEntity(
     roomId = roomId,
     selfBossDamage = selfBossDamage,
     teamBossDamage = teamBossDamage,
     rivalBossDamage = rivalBossDamage,
     updatedAtSec = updatedAtSec,
     payloadJson = payloadJson,
+    ownerOpenId = ownerOpenId,
 )
 
 fun ConfigCacheEntity.toBackupConfig(): BackupConfig =

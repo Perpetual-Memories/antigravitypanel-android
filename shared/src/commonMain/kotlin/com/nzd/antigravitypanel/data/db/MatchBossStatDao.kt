@@ -11,36 +11,29 @@ interface MatchBossStatDao {
     @Upsert
     suspend fun upsert(item: MatchBossStatEntity)
 
-    /**
-     * 导入数据包用：整批写入。
-     *
-     * 和 [upsert] 分开而不是只留这个：详情页每次只记一局，单个 upsert 更直白；
-     * 这里要一次写几千行，逐条 upsert 会变成几千次事务。
-     */
+    /** 导入数据包用：整批写入当前 owner 的详情。 */
     @Upsert
     suspend fun upsertAll(items: List<MatchBossStatEntity>)
 
-    /** 给历史页做标签用。表撑死跟对局数一样多，整表读进来比按 id 逐个查省事。 */
-    @Query("SELECT * FROM match_boss_stats")
-    fun observeAll(): Flow<List<MatchBossStatEntity>>
+    /** 历史页只订阅当前账号，避免相同 roomId 的标签互相串号。 */
+    @Query("SELECT * FROM match_boss_stats WHERE ownerOpenId = :ownerOpenId")
+    fun observeAll(ownerOpenId: String): Flow<List<MatchBossStatEntity>>
 
-    /** 导出用：一次性把整表读出来。和 [observeAll] 同一张表，只是不订阅后续变化。 */
-    @Query("SELECT * FROM match_boss_stats")
-    suspend fun all(): List<MatchBossStatEntity>
+    /** 当前账号的导出快照。 */
+    @Query("SELECT * FROM match_boss_stats WHERE ownerOpenId = :ownerOpenId")
+    suspend fun all(ownerOpenId: String): List<MatchBossStatEntity>
 
-    /** 已经试过的 roomId（不区分成功还是失败），补拉前先读一遍去重。 */
-    @Query("SELECT roomId FROM match_boss_stats")
-    suspend fun knownRoomIds(): List<String>
+    /** 当前账号已经试过的 roomId（不区分成功还是失败）。 */
+    @Query("SELECT roomId FROM match_boss_stats WHERE ownerOpenId = :ownerOpenId")
+    suspend fun knownRoomIds(ownerOpenId: String): List<String>
 
-    /**
-     * 跟着对局表走：对局被保留期裁掉以后，这边的行也该删，否则会无限攒下去。
-     *
-     * `NOT IN` 而不是连表删除：Room 在 KMP 下对 `DELETE ... WHERE ... IN (SELECT ...)`
-     * 的支持是够用的，写起来也最直白。
-     */
-    @Query("DELETE FROM match_boss_stats WHERE roomId NOT IN (SELECT roomId FROM matches)")
-    suspend fun deleteOrphans(): Int
+    /** 只清理当前账号的孤儿详情，另一账号的同 roomId 对局不能让这一行被保留或误删。 */
+    @Query(
+        "DELETE FROM match_boss_stats WHERE ownerOpenId = :ownerOpenId " +
+            "AND roomId NOT IN (SELECT roomId FROM matches WHERE ownerOpenId = :ownerOpenId)",
+    )
+    suspend fun deleteOrphans(ownerOpenId: String): Int
 
-    @Query("DELETE FROM match_boss_stats")
-    suspend fun clear()
+    @Query("DELETE FROM match_boss_stats WHERE ownerOpenId = :ownerOpenId")
+    suspend fun clear(ownerOpenId: String)
 }

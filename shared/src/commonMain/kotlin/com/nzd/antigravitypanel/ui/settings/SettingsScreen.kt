@@ -26,7 +26,9 @@ import com.nzd.antigravitypanel.data.export.MatchExportFormat
 import com.nzd.antigravitypanel.data.settings.ScoreUnitTarget
 import com.nzd.antigravitypanel.data.settings.UserSettings
 import com.nzd.antigravitypanel.ui.component.MaterialGlyphs
+import com.nzd.antigravitypanel.ui.component.copyToClipboard
 import com.nzd.antigravitypanel.ui.component.openUrl
+import com.nzd.antigravitypanel.ui.component.showToast
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -68,19 +70,8 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  */
 const val PC_DOWNLOAD_URL = "https://wwbxs.lanzoum.com/b011mli8fi"
 
-/**
- * 「积分显示单位」那一行的副标题：把当前勾选说成一句人话。
- *
- * 三个都勾 / 都没勾时给整句（"全部以万显示" / "全部显示完整数字"），
- * 否则列出页面名 —— 只写"已选 2 项"的话用户还得点开才知道是哪两项。
- */
-private fun scoreUnitSummary(targets: Set<ScoreUnitTarget>): String = when {
-    targets.isEmpty() -> "全部显示完整数字"
-    targets.size == ScoreUnitTarget.entries.size -> "全部以万显示"
-    else -> "以万显示：" + ScoreUnitTarget.entries
-        .filter { it in targets }
-        .joinToString("、") { it.label }
-}
+/** 蓝奏云的提取码。点下载时先复制到剪贴板，用户在浏览器里直接粘贴。 */
+private const val PC_DOWNLOAD_EXTRACT_CODE = "5ytc"
 
 data class SettingsUiState(
     val retentionMonths: Int = UserSettings.DEFAULT_RETENTION_MONTHS,
@@ -193,6 +184,7 @@ fun SettingsScreen(
                 // 用下拉而不是开关，是因为三个页面各有各的偏好（扫读的用万、核对的用全量），
                 // 一个总开关满足不了；**多选**靠 collapseOnSelection = false 实现 ——
                 // 默认行为是点一项就收起弹层，那样连点两项都得重新展开。
+                // 标题直接写明"以万为单位显示"，行下不再挂副标题：勾选状态全在弹层的勾上。
                 OverlayDropdownPreference(
                     entries = listOf(
                         DropdownEntry(
@@ -200,7 +192,6 @@ fun SettingsScreen(
                                 val on = target in state.scoreWanTargets
                                 DropdownItem(
                                     text = target.label,
-                                    summary = if (on) "以万为单位" else "完整数字",
                                     selected = on,
                                     // 只交出"点了哪一项"，勾/取消由调用方按**当前**值算
                                     onClick = { onScoreUnitToggle(target) },
@@ -208,11 +199,10 @@ fun SettingsScreen(
                             },
                         ),
                     ),
-                    title = "积分显示单位",
-                    summary = scoreUnitSummary(state.scoreWanTargets),
+                    title = "积分以万为单位显示",
                     startAction = { PreferenceIcon(MaterialGlyphs.Scoreboard) },
                     insideMargin = SettingsItemMargin,
-                    // 右侧不重复一个页面名：当前状态由下面那行 summary 一句话说清
+                    // 右侧不重复一个页面名：当前状态由弹层里的勾选体现
                     showValue = false,
                     collapseOnSelection = false,
                 )
@@ -259,16 +249,12 @@ fun SettingsScreen(
                 // 用户翻设置找的就是"数据"这一组。
                 ArrowPreference(
                     title = "导出数据",
-                    // 副标题只说一句"含凭证"就够了：这才是用户点之前必须知道的事，
-                    // 其它内容（战绩 / 地图分布 / 设置）写在确认弹窗里。
-                    summary = "含登录凭证，zip 包",
                     startAction = { PreferenceIcon(MiuixIcons.Remove) },
                     insideMargin = SettingsItemMargin,
                     onClick = { confirmExportData = true },
                 )
                 ArrowPreference(
                     title = "导入数据",
-                    summary = "读取本应用导出的 zip",
                     startAction = { PreferenceIcon(MiuixIcons.Import) },
                     insideMargin = SettingsItemMargin,
                     onClick = onImportData,
@@ -322,14 +308,23 @@ fun SettingsScreen(
                 // 放在「关于」上面，先给"还想装别的"再给"这是什么"。
                 // 标题点名版本号并写「下载」：点开的是网盘里的安装包，不是介绍页了，
                 // 不写版本号的话用户不知道拿到的是不是最新那版。
-                // 提取码放在 summary（第二行小字），网盘页要密码，不写在这儿等于让人白跑一趟。
+                // 提取码一边放在 summary（第二行小字），一边在点击时自动复制进剪贴板：
+                // 网盘页要密码，不写在这儿等于让人白跑一趟；写了也还是得手抄，
+                // 所以干脆替他复制好，过去直接粘贴。
                 ArrowPreference(
                     // 标题带上 App 全名：光说「PC 端」用户还得猜是哪个 PC 端
-                    title = "下载PC 端《反重力数据面板》 1.9.2",
+                    title = "下载 PC 端《反重力数据面板》 2.0.0",
                     summary = "密码:5ytc",
                     startAction = { PreferenceIcon(MaterialGlyphs.Computer) },
                     insideMargin = SettingsItemMargin,
-                    onClick = { openUrl(PC_DOWNLOAD_URL) },
+                    onClick = {
+                        // 顺序照关于页那条下载：先复制、再提示、最后切浏览器。
+                        // 切成浏览器之后 Toast 就看不见了，而用户此刻正需要知道
+                        // 提取码已经在剪贴板里。
+                        copyToClipboard(PC_DOWNLOAD_EXTRACT_CODE, "提取码")
+                        showToast("提取码 $PC_DOWNLOAD_EXTRACT_CODE，已复制到剪贴板")
+                        openUrl(PC_DOWNLOAD_URL)
+                    },
                 )
                 ArrowPreference(
                     title = "关于",

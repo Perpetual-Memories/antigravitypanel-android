@@ -84,29 +84,25 @@ fun CookieGuideDialog(
         onDismissRequest = onGoGet,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                text = "Cookie 只保存在本机（加密），不会上传到任何服务器。",
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 13.sp,
-            )
-
-            GuideBranch(
-                title = "手机已 root",
-                detail = rootDetail,
-            )
             // 扫码这条路**不需要用户手里先有 Cookie**——PC 端把当前账号的凭证编成二维码，
-            // 手机扫一下就完事，比在电脑和手机之间来回粘一长串快得多，所以它是无 root 时的首选。
+            // 手机扫一下就完事，比在电脑和手机之间来回粘一长串快得多，所以它排在第一条。
             // 这段把 PC 端怎么出码、手机端从哪扫码**两头都说了**：
             // 只说一头的话用户会卡在"二维码在哪"上，最后还是回去手动抓。
+            // 微信区多一条"另一部设备的微信直接扫"的方案：那条路能绕开本机装不装证书的问题。
             GuideBranch(
                 title = "手机无 root",
                 detail = buildAnnotatedString {
                     append(
-                        "推荐使用扫码登录。自PC端反重力数据面板 1.8.9起，" +
-                            "可在系统设置-账号详细信息中查看Cookie二维码，" +
-                            "轻触APP首页Cookie状态卡，在弹出的底部动作面板右上角可找到扫码入口。",
+                        "推荐使用扫码登录。自 PC 端反重力数据面板 1.8.9 起，" +
+                            "可在系统设置-账号详细信息中查看 Cookie 二维码，" +
+                            "轻触 APP 首页 Cookie 状态卡，在弹出的面板右上角可找到扫码入口。" +
+                            "另外，针对微信区账号，还额外提供使用另一部设备的微信直接扫码登录的方案。",
                     )
                 },
+            )
+            GuideBranch(
+                title = "手机已 root",
+                detail = rootDetail,
             )
 
             Row(

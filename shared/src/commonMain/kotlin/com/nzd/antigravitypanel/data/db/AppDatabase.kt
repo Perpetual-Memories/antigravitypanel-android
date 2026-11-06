@@ -48,9 +48,95 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
     }
 }
 
+/**
+ * 3 -> 4：对局和详情都按凭证 openid 隔离，主键改为 `(ownerOpenId, roomId)`。
+ *
+ * 两表都重建而不是只加列：SQLite 不能直接用 ALTER TABLE 改主键。INSERT 明确列出
+ * 所有旧列（包括 `payloadJson`），旧行先放到空 owner，之后由 `claimLegacyData` 一次性认领。
+ */
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(db: SQLiteConnection) {
+        fun exec(sql: String) {
+            db.prepare(sql).use { it.step() }
+        }
+
+        exec("ALTER TABLE `matches` RENAME TO `matches_legacy`")
+        exec(
+            "CREATE TABLE `matches` (" +
+                "`ownerOpenId` TEXT NOT NULL, " +
+                "`roomId` TEXT NOT NULL, " +
+                "`openId` TEXT NOT NULL, " +
+                "`eventTime` TEXT NOT NULL, " +
+                "`eventTimeSec` INTEGER NOT NULL, " +
+                "`startTime` TEXT NOT NULL, " +
+                "`areaId` TEXT NOT NULL, " +
+                "`finTime` INTEGER NOT NULL, " +
+                "`duration` INTEGER NOT NULL, " +
+                "`isWin` INTEGER NOT NULL, " +
+                "`gameMode` INTEGER NOT NULL, " +
+                "`modeType` INTEGER NOT NULL, " +
+                "`subModeType` INTEGER NOT NULL, " +
+                "`mapId` INTEGER NOT NULL, " +
+                "`score` INTEGER NOT NULL, " +
+                "`seasonId` TEXT NOT NULL, " +
+                "`kills` INTEGER NOT NULL, " +
+                "`deaths` INTEGER NOT NULL, " +
+                "`assists` INTEGER NOT NULL, " +
+                "`rankValue` INTEGER NOT NULL, " +
+                "`finished` INTEGER NOT NULL, " +
+                "`syncedAtSec` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`ownerOpenId`, `roomId`)" +
+                ")",
+        )
+        exec(
+            "INSERT INTO `matches` (" +
+                "`ownerOpenId`, `roomId`, `openId`, `eventTime`, `eventTimeSec`, `startTime`, " +
+                "`areaId`, `finTime`, `duration`, `isWin`, `gameMode`, `modeType`, `subModeType`, " +
+                "`mapId`, `score`, `seasonId`, `kills`, `deaths`, `assists`, `rankValue`, " +
+                "`finished`, `syncedAtSec`" +
+                ") SELECT '', " +
+                "`roomId`, `openId`, `eventTime`, `eventTimeSec`, `startTime`, `areaId`, " +
+                "`finTime`, `duration`, `isWin`, `gameMode`, `modeType`, `subModeType`, `mapId`, " +
+                "`score`, `seasonId`, `kills`, `deaths`, `assists`, `rankValue`, `finished`, `syncedAtSec` " +
+                "FROM `matches_legacy`",
+        )
+        exec("DROP TABLE `matches_legacy`")
+        exec("CREATE INDEX IF NOT EXISTS `index_matches_ownerOpenId` ON `matches` (`ownerOpenId`)")
+        exec("CREATE INDEX IF NOT EXISTS `index_matches_eventTimeSec` ON `matches` (`eventTimeSec`)")
+        exec("CREATE INDEX IF NOT EXISTS `index_matches_mapId` ON `matches` (`mapId`)")
+        exec("CREATE INDEX IF NOT EXISTS `index_matches_openId` ON `matches` (`openId`)")
+
+        exec("ALTER TABLE `match_boss_stats` RENAME TO `match_boss_stats_legacy`")
+        exec(
+            "CREATE TABLE `match_boss_stats` (" +
+                "`ownerOpenId` TEXT NOT NULL, " +
+                "`roomId` TEXT NOT NULL, " +
+                "`selfBossDamage` INTEGER NOT NULL, " +
+                "`teamBossDamage` INTEGER NOT NULL, " +
+                "`rivalBossDamage` INTEGER NOT NULL, " +
+                "`updatedAtSec` INTEGER NOT NULL, " +
+                "`payloadJson` TEXT, " +
+                "PRIMARY KEY(`ownerOpenId`, `roomId`)" +
+                ")",
+        )
+        exec(
+            "INSERT INTO `match_boss_stats` (" +
+                "`ownerOpenId`, `roomId`, `selfBossDamage`, `teamBossDamage`, " +
+                "`rivalBossDamage`, `updatedAtSec`, `payloadJson`" +
+                ") SELECT '', `roomId`, `selfBossDamage`, `teamBossDamage`, " +
+                "`rivalBossDamage`, `updatedAtSec`, `payloadJson` FROM `match_boss_stats_legacy`",
+        )
+        exec("DROP TABLE `match_boss_stats_legacy`")
+        exec(
+            "CREATE INDEX IF NOT EXISTS `index_match_boss_stats_ownerOpenId` " +
+                "ON `match_boss_stats` (`ownerOpenId`)",
+        )
+    }
+}
+
 @Database(
     entities = [MatchEntity::class, ConfigCacheEntity::class, MatchBossStatEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @ConstructedBy(AppDatabaseConstructor::class)

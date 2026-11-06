@@ -267,6 +267,39 @@ object MaterialGlyphs {
         }
     }
 
+    /** `person_add_alt_1`：人物与右侧加号。账号详情页的「多账号管理」入口用。 */
+    val PersonAddAlt1: ImageVector by lazy {
+        buildMaterialIcon("PersonAddAlt1") {
+            moveTo(14f, 8f)
+            curveToRelative(0f, -2.21f, -1.79f, -4f, -4f, -4f)
+            reflectiveCurveTo(6f, 5.79f, 6f, 8f)
+            reflectiveCurveTo(7.79f, 12f, 10f, 12f)
+            reflectiveCurveTo(14f, 10.21f, 14f, 8f)
+            close()
+            moveTo(10f, 12f)
+            curveToRelative(-2.67f, 0f, -8f, 1.34f, -8f, 4f)
+            verticalLineToRelative(2f)
+            horizontalLineToRelative(16f)
+            verticalLineToRelative(-2f)
+            curveToRelative(0f, -2.66f, -5.33f, -4f, -8f, -4f)
+            close()
+            moveTo(20f, 10f)
+            verticalLineTo(7f)
+            horizontalLineToRelative(-2f)
+            verticalLineToRelative(3f)
+            horizontalLineToRelative(-3f)
+            verticalLineToRelative(2f)
+            horizontalLineToRelative(3f)
+            verticalLineToRelative(3f)
+            horizontalLineToRelative(2f)
+            verticalLineToRelative(-3f)
+            horizontalLineToRelative(3f)
+            verticalLineToRelative(-2f)
+            horizontalLineToRelative(-3f)
+            close()
+        }
+    }
+
     /**
      * GitHub 的 octocat 剪影。
      *

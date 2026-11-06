@@ -18,12 +18,12 @@ interface MatchLocalSource {
      * 返回 `roomId -> 本地记录的完成状态`。查不到的 key 表示本地没有这条。
      * 完成状态参与判断，是因为未完成对局需要刷新，不能当成"已经同步过"。
      */
-    suspend fun knownStates(roomIds: List<String>): Map<String, Boolean>
+    suspend fun knownStates(ownerOpenId: String, roomIds: List<String>): Map<String, Boolean>
 
     suspend fun upsertAll(entities: List<MatchEntity>)
 
     /** 删掉早于 [cutoffSec] 的对局，返回删除条数。 */
-    suspend fun deleteOlderThan(cutoffSec: Long): Int
+    suspend fun deleteOlderThan(ownerOpenId: String, cutoffSec: Long): Int
 }
 
 /**
@@ -135,7 +135,12 @@ class MatchSyncer(
      * @param nowSec 当前时间（epoch 秒）。由调用方传入，不在这里读时钟，方便测试。
      * @param retentionMonths 本地保留月数，<= 0 表示永久保留
      */
-    suspend fun sync(nowSec: Long, retentionMonths: Int = DEFAULT_RETENTION_MONTHS): SyncResult {
+    suspend fun sync(
+        ownerOpenId: String,
+        nowSec: Long,
+        retentionMonths: Int = DEFAULT_RETENTION_MONTHS,
+    ): SyncResult {
+        require(ownerOpenId.isNotBlank()) { "同步对局需要凭证 openid" }
         var newCount = 0
         var refreshedCount = 0
         var fetchedCount = 0
@@ -157,9 +162,9 @@ class MatchSyncer(
                 pages++
                 fetchedCount += records.size
 
-                val plan = planPage(records, local.knownStates(records.map { it.DsRoomId }))
+                val plan = planPage(records, local.knownStates(ownerOpenId, records.map { it.DsRoomId }))
                 if (plan.toWrite.isNotEmpty()) {
-                    local.upsertAll(plan.toWrite.map { it.toEntity(nowSec) })
+                    local.upsertAll(plan.toWrite.map { it.toEntity(nowSec, ownerOpenId) })
                 }
                 newCount += plan.newCount
                 refreshedCount += plan.refreshedCount
@@ -180,7 +185,7 @@ class MatchSyncer(
         }
 
         val deletedCount = if (retentionMonths > 0) {
-            local.deleteOlderThan(minusCalendarMonths(nowSec, retentionMonths))
+            local.deleteOlderThan(ownerOpenId, minusCalendarMonths(nowSec, retentionMonths))
         } else {
             0
         }

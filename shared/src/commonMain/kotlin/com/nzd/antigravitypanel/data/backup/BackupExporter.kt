@@ -38,11 +38,13 @@ class BackupExporter(
     suspend fun build(
         nowSec: Long = currentEpochSeconds(),
         appVersion: String = "",
+        /** 当前凭证 openid；空 owner 仅用于兼容导出尚未认领的旧数据。 */
+        ownerOpenId: String = "",
     ): BackupFile {
         // 三张表都各自兜一层：任何一张读失败都不该让整包导不出来，
         // 少一块总比"点了没反应"强（缺哪块导入侧按空处理）。
-        val matches = runCatching { matchDao.all() }.getOrDefault(emptyList())
-        val details = runCatching { bossStatDao.all() }.getOrDefault(emptyList())
+        val matches = runCatching { matchDao.all(ownerOpenId) }.getOrDefault(emptyList())
+        val details = runCatching { bossStatDao.all(ownerOpenId) }.getOrDefault(emptyList())
         val configs = runCatching { configDao.all() }.getOrDefault(emptyList())
 
         val credentials = readKeys(BackupKeys.credentials)

@@ -10,9 +10,9 @@ class RoomMatchLocalSource(
     private val dao: MatchDao,
 ) : MatchLocalSource {
 
-    override suspend fun knownStates(roomIds: List<String>): Map<String, Boolean> {
+    override suspend fun knownStates(ownerOpenId: String, roomIds: List<String>): Map<String, Boolean> {
         if (roomIds.isEmpty()) return emptyMap()
-        return dao.knownStates(roomIds).associate { it.roomId to it.finished }
+        return dao.knownStates(ownerOpenId, roomIds).associate { it.roomId to it.finished }
     }
 
     override suspend fun upsertAll(entities: List<MatchEntity>) {
@@ -20,7 +20,8 @@ class RoomMatchLocalSource(
         dao.upsertAll(entities)
     }
 
-    override suspend fun deleteOlderThan(cutoffSec: Long): Int = dao.deleteOlderThan(cutoffSec)
+    override suspend fun deleteOlderThan(ownerOpenId: String, cutoffSec: Long): Int =
+        dao.deleteOlderThan(ownerOpenId, cutoffSec)
 }
 
 /**

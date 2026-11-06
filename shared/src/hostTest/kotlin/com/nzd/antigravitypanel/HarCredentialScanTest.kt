@@ -135,6 +135,28 @@ class HarCredentialScanTest {
         assertTrue(parseNzCookie(raw) is WechatMiniCredential)
     }
 
+    /**
+     * 真实导出工具写出来的 HAR 也要认。
+     *
+     * 之前这条是坏的：`scanMiniProgramCookie` 吃的是**默认（严格）的 `Json`**，
+     * 而 Reqable / Charles / Chrome 导出的 HAR，`log` 一定带 `version` / `creator`，
+     * `entries[]` 里还有 `startedDateTime` / `response` / `timings` 这些我们没声明过的字段。
+     * 严格模式遇到第一个不认识的键就抛 `Unknown key`，整份文件被判成"不是 HAR" ——
+     * 用户看到的就是「这个文件读不出 HAR 结构」，哪怕文件本身完全正常。
+     *
+     * 夹具故意写成**真实形状**（不是只有 log/entries 的空壳），否则这条测试测不出问题。
+     */
+    @Test
+    fun 真实导出工具写的HAR也要能读出来() {
+        val scan = scanMiniProgramCookie(HAR_LOGIN_REAL_SHAPE)
+        assertTrue(scan.looksLikeHar, "带 log.version / creator 的 HAR 被当成非 HAR 了")
+        assertEquals(1, scan.entryCount)
+        val raw = checkNotNull(scan.cookie) { "应该从 request.cookies 里拼出 cookie" }
+        assertEquals("137700727749128", parseNzCookie(raw).openid)
+        // 签到那三路用的是同一个解析实例，顺手确认宽松设置对它也没坏处
+        assertTrue(HarCredentialScanner.scan(HAR_LOGIN_REAL_SHAPE).looksLikeHar)
+    }
+
     @Test
     fun 抓错页面的HAR要说清楚是没抓到而不是文件坏了() {
         // 是 HAR 但没有登录请求 → 引导用户去小程序里再抓一次；
@@ -325,6 +347,51 @@ private const val HAR_LOGIN_WECHAT = """
             {"name": "Cookie", "value": "openid=oWeChatOpenId; acctype=mini; appid=wx1234567890; ieg_ams_session_token=SESSION-TOKEN"}
           ]
         }
+      }
+    ]
+  }
+}
+"""
+
+/**
+ * 真实导出工具（这里是 Reqable 3.x）写的 HAR 形状。
+ *
+ * 和上面几个夹具的区别就是**多出来的那些键**：`log.version` / `log.creator`，
+ * entry 上的 `startedDateTime` / `time` / `response` / `cache` / `timings`，
+ * request 上的 `method` / `httpVersion` / `queryString` / `headersSize` / `bodySize`。
+ * 它们一个都不参与认凭证，但严格模式的 `Json` 会因为这个直接拒掉整份文件。
+ */
+private const val HAR_LOGIN_REAL_SHAPE = """
+{
+  "log": {
+    "version": "1.2",
+    "creator": {"name": "Reqable", "version": "3.3.10"},
+    "entries": [
+      {
+        "startedDateTime": "2026-11-06T04:06:33.610Z",
+        "time": 57,
+        "request": {
+          "method": "GET",
+          "url": "https://comm.ams.game.qq.com/ide/?serviceId=95&method=center.user.game.list",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [
+            {"name": "openid", "value": "137700727749128"},
+            {"name": "acctype", "value": "qc"},
+            {"name": "appid", "value": "1112451898"},
+            {"name": "access_token", "value": "ABCDEF123456"},
+            {"name": "verifysession", "value": "VS"}
+          ],
+          "headers": [
+            {"name": "Host", "value": "comm.ams.game.qq.com"},
+            {"name": "User-Agent", "value": "Mozilla/5.0"}
+          ],
+          "queryString": [],
+          "headersSize": 312,
+          "bodySize": 0
+        },
+        "response": {"status": 200, "content": {"size": 0}},
+        "cache": {},
+        "timings": {"send": 1, "wait": 50, "receive": 6}
       }
     ]
   }

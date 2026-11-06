@@ -27,12 +27,15 @@ import com.nzd.antigravitypanel.domain.MapSeason
 import com.nzd.antigravitypanel.domain.MapStatEntry
 import com.nzd.antigravitypanel.domain.aggregateByMap
 import com.nzd.antigravitypanel.domain.buildOfficialMapStats
+import com.nzd.antigravitypanel.domain.filterCompletedSections
 import com.nzd.antigravitypanel.domain.groupMapsBySeason
 import com.nzd.antigravitypanel.domain.hasSeasonFilter
+import com.nzd.antigravitypanel.domain.mergeLocalDrops
 import com.nzd.antigravitypanel.domain.mergeMapStats
 import com.nzd.antigravitypanel.domain.seasonOrderOf
 import com.nzd.antigravitypanel.domain.serverMode
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -44,6 +47,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -88,6 +93,7 @@ import kotlinx.coroutines.launch
  * 在这之前先摆**缓存**（[MapStatsCacheCodec] / [MapDropsCacheCodec]），
  * 那是上一次确认过的真值，比半截的本地库接近真相。
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class MapDistributionViewModel(
     private val api: NzApi,
     dao: MatchDao,
@@ -106,6 +112,8 @@ class MapDistributionViewModel(
     statsSeed: String? = null,
     /** 同上，掉落物那份。 */
     dropsSeed: String? = null,
+    /** 与 refresh(cookie) 同源的当前凭证 owner；空账号的本地兜底也是空列表。 */
+    private val ownerOpenId: StateFlow<String?> = MutableStateFlow(null),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -149,8 +157,29 @@ class MapDistributionViewModel(
         scope.launch { seasonFilter.toggle(_mode.value, key) }
     }
 
-    private val allMatches = dao.observeAll()
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /**
+     * 「仅显示未毕业的地图」。**不分模式**：这是"我只想看还差东西的图"这一个意图，
+     * 换个 Tab 不该自己复位。
+     *
+     * 初值走同步 [KeyValueStore.peek]（宿主预热过），否则冷启动第一帧会先把
+     * 已毕业的卡摆出来、再"唰"地抽走，看起来像数据在跳。
+     */
+    private val _hideCompleted = MutableStateFlow(
+        runCatching { store.peek(StoreKey.MAP_HIDE_COMPLETED) }.getOrNull() == "1",
+    )
+    val hideCompleted: StateFlow<Boolean> = _hideCompleted.asStateFlow()
+
+    fun toggleHideCompleted() {
+        val next = !_hideCompleted.value
+        _hideCompleted.value = next
+        scope.launch {
+            runCatching { store.write(StoreKey.MAP_HIDE_COMPLETED, if (next) "1" else "0") }
+        }
+    }
+
+    private val allMatches = ownerOpenId.flatMapLatest { owner ->
+        if (owner.isNullOrBlank()) flowOf(emptyList()) else dao.observeAll(owner)
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ---------------- 官方统计 ----------------
 
@@ -214,15 +243,11 @@ class MapDistributionViewModel(
         }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * 分好节的卡片列表：猎场 / 塔防按赛季，其余按模式，没打过的地图补 0 场。
+     * 掉落物，**已并入**三件官方接口不下发的隐藏掉落物（见 [mergeLocalDrops]）。
      *
-     * 赛季筛选跟着当前模式走 —— 猎场和塔防各存一份勾选，切 Tab 时各读各的。
+     * 存合并后的整份而不是"接口原样 + 派生一份"：这三个格子的 `owned` 也得落盘，
+     * 否则冷启动到挂件接口回来之前，那三张图会被误算成"已毕业"。
      */
-    val sections: StateFlow<List<MapSection>> =
-        combine(entries, config, _mode, seasonSelection) { list, cfg, mode, seasons ->
-            groupMapsBySeason(mode, list, cfg, seasons)
-        }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     private val _drops = MutableStateFlow<Map<Int, List<MapItemDto>>>(
         dropsSeed?.let { MapDropsCacheCodec.decode(it) }?.toIntMap() ?: emptyMap()
     )
@@ -246,6 +271,23 @@ class MapDistributionViewModel(
     val dropError: StateFlow<String?> = _dropError.asStateFlow()
 
     private var loadingDrops = false
+
+    /** 掉落物 + 「仅显示未毕业」合成一条，好让 [sections] 的 combine 只占一个名额。 */
+    private val completionFilter = combine(_drops, _hideCompleted) { drops, hide -> drops to hide }
+
+    /**
+     * 分好节的卡片列表：猎场 / 塔防按赛季，其余按模式，没打过的地图补 0 场。
+     *
+     * 赛季筛选跟着当前模式走（各存一份勾选）；「仅显示未毕业」是全局的，
+     * 命中时把掉落物已全部解锁的图剔掉，整节都毕业了就连小标题一起不摆。
+     */
+    val sections: StateFlow<List<MapSection>> =
+        combine(entries, config, _mode, seasonSelection, completionFilter) { list, cfg, mode, seasons, filter ->
+            val grouped = groupMapsBySeason(mode, list, cfg, seasons)
+            val (drops, hide) = filter
+            // 没勾「仅显示未毕业」时**原样返回**，连列表实例都不换，省掉一整屏重组
+            if (!hide) grouped else filterCompletedSections(grouped, drops)
+        }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         // 勾选是存在加密存储里的，读出来之前 UI 那边一律当"全选"
@@ -374,11 +416,17 @@ class MapDistributionViewModel(
     }
 
     /**
-     * 一次把**全部地图**的掉落物拉回来。
+     * 一次把**全部地图**的掉落物拉回来，顺手把三件隐藏掉落物补上。
      *
-     * 原来是翻到哪张卡才拉哪张，但卡片正面现在要显示「核心收集进度 x / y」，
+     * 两件事一起做、**并行发**：
+     * - `center.map.item.list`（`mapID` 空数组 = 全部地图）
+     * - `collection.pendant.list`（隐藏掉落物的名字 / 图标 / 已解锁都在这里）
+     *
+     * 为什么原来按需拉不行：卡片正面要显示「核心收集进度 x / y」，
      * 那就得在渲染之前知道每张图有几件收集品 —— 按需拉的话，没翻过的卡全是空的。
-     * `mapID` 传空数组时服务端返回全部地图，一次请求就够（官方 PC 端也是这么拿的）。
+     *
+     * 两路的失败是**分开**处理的：掉落物拉到了就算成功（挂件那发失败只是少三格，
+     * 且会退回上一次补过的缓存），不把整页退成"掉落物没拉到"。
      *
      * 失败只记一条错误文案，不清空已有结果：翻面翻到一半网络抖了，
      * 用户至少还能看到上一次的结果。
@@ -393,12 +441,23 @@ class MapDistributionViewModel(
         }
         loadingDrops = true
         scope.launch {
-            runCatching { api.mapItemList() }
+            val (dropsResult, pendantsResult) = coroutineScope {
+                val drops = async { runCatching { api.mapItemList() } }
+                val pendants = async { runCatching { api.collectionPendant() } }
+                drops.await() to pendants.await()
+            }
+            dropsResult
                 .onSuccess { response ->
-                    _drops.value = response.itemMap.mapNotNull { (key, list) ->
+                    val raw = response.itemMap.mapNotNull { (key, list) ->
                         // 服务端的 key 是字符串形式的 mapID，转不出 int 的直接丢
                         key.toIntOrNull()?.let { it to list }
                     }.toMap()
+                    _drops.value = mergeLocalDrops(
+                        drops = raw,
+                        pendants = pendantsResult.getOrNull()?.list.orEmpty(),
+                        previous = _drops.value,
+                        pendantsLoaded = pendantsResult.isSuccess,
+                    )
                     _dropsLoaded.value = true
                     _dropError.value = null
                     persistDrops()

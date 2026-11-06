@@ -26,6 +26,8 @@ import kotlin.test.assertTrue
  * 服务端只留滚动窗口（近 30 天 / 最近 100 场），老数据滚出就再也拿不回来，
  * 所以"什么时候停"必须是可验证的：停早了丢数据，停晚了每次全量重拉还撞上限。
  */
+private const val SYNC_OWNER = "credential-owner"
+
 class MatchSyncTest {
 
     // ---------------- 单页决策 ----------------
@@ -100,7 +102,7 @@ class MatchSyncTest {
         assertEquals(6, result.newCount) // a1..a4 + b1,b2
         assertEquals(8, result.fetchedCount)
         // b3 在 k1 后面，不该被拉下来
-        assertFalse(local.rows.containsKey("b3"))
+        assertFalse(local.rows.containsKey(SYNC_OWNER to "b3"))
         assertEquals(listOf("猎场#1", "猎场#2"), remote.requested)
     }
 
@@ -176,8 +178,8 @@ class MatchSyncTest {
         )
         val first = sync(remote, local, pageSize = 4)
         assertEquals(2, first.newCount)
-        assertFalse(local.rows["A"]!!.finished)
-        assertTrue(local.rows["B"]!!.finished)
+        assertFalse(local.rows[SYNC_OWNER to "A"]!!.finished)
+        assertTrue(local.rows[SYNC_OWNER to "B"]!!.finished)
 
         // A 打完了：这次应该刷新 A，然后撞上已完成的 B 停下
         remote.pages[1] = listOf(fakeRecord("A", finTime = 200), fakeRecord("B", finTime = 100))
@@ -185,8 +187,33 @@ class MatchSyncTest {
         val second = sync(remote, local, pageSize = 4)
         assertEquals(0, second.newCount)
         assertEquals(1, second.refreshedCount)
-        assertTrue(local.rows["A"]!!.finished)
-        assertEquals(200, local.rows["A"]!!.finTime)
+        assertTrue(local.rows[SYNC_OWNER to "A"]!!.finished)
+        assertEquals(200, local.rows[SYNC_OWNER to "A"]!!.finTime)
+    }
+
+    @Test
+    fun 同步写入凭证owner而不是DTOvOpenID() {
+        val local = FakeLocal()
+        val remote = FakeRemote(
+            1 to listOf(fakeRecord("same-room").copy(vOpenID = "dto-v-open-id")),
+        )
+
+        sync(remote, local, pageSize = 4)
+
+        val saved = local.rows.getValue(SYNC_OWNER to "same-room")
+        assertEquals(SYNC_OWNER, saved.ownerOpenId)
+        assertEquals("dto-v-open-id", saved.openId)
+    }
+
+    @Test
+    fun 同一roomId可以被两个账号分别同步共存() {
+        val local = FakeLocal()
+        sync(FakeRemote(1 to listOf(fakeRecord("same-room"))), local, pageSize = 4, ownerOpenId = "owner-a")
+        sync(FakeRemote(1 to listOf(fakeRecord("same-room"))), local, pageSize = 4, ownerOpenId = "owner-b")
+
+        assertEquals(2, local.rows.size)
+        assertEquals("owner-a", local.rows.getValue("owner-a" to "same-room").ownerOpenId)
+        assertEquals("owner-b", local.rows.getValue("owner-b" to "same-room").ownerOpenId)
     }
 
     // ---------------- 保留期 ----------------
@@ -196,15 +223,15 @@ class MatchSyncTest {
         val local = FakeLocal()
         val now = 1788531316L // 2026-09-04 22:15:16 UTC+8
         // 一条 3 个月前（应保留），一条 2 年前（应删掉）
-        local.rows["recent"] = fakeRecord("recent").copy(dtEventTime = "2026-06-01 10:00:00").toEntity(now)
-        local.rows["ancient"] = fakeRecord("ancient").copy(dtEventTime = "2024-06-01 10:00:00").toEntity(now)
+        local.rows[SYNC_OWNER to "recent"] = fakeRecord("recent").copy(dtEventTime = "2026-06-01 10:00:00").toEntity(now, SYNC_OWNER)
+        local.rows[SYNC_OWNER to "ancient"] = fakeRecord("ancient").copy(dtEventTime = "2024-06-01 10:00:00").toEntity(now, SYNC_OWNER)
 
         val remote = FakeRemote(1 to emptyList())
         val result = sync(remote, local, pageSize = 4, nowSec = now, retentionMonths = 6)
 
         assertEquals(minusCalendarMonths(now, 6), local.lastCutoffSec)
-        assertTrue(local.rows.containsKey("recent"))
-        assertFalse(local.rows.containsKey("ancient"))
+        assertTrue(local.rows.containsKey(SYNC_OWNER to "recent"))
+        assertFalse(local.rows.containsKey(SYNC_OWNER to "ancient"))
         assertEquals(1, result.deletedCount)
     }
 
@@ -212,12 +239,12 @@ class MatchSyncTest {
     fun 永久保留时不删任何东西() {
         val local = FakeLocal()
         val now = 1788531316L
-        local.rows["ancient"] = fakeRecord("ancient").copy(dtEventTime = "2020-06-01 10:00:00").toEntity(now)
+        local.rows[SYNC_OWNER to "ancient"] = fakeRecord("ancient").copy(dtEventTime = "2020-06-01 10:00:00").toEntity(now, SYNC_OWNER)
 
         sync(FakeRemote(1 to emptyList()), local, pageSize = 4, nowSec = now, retentionMonths = 0)
 
         assertNull(local.lastCutoffSec)
-        assertTrue(local.rows.containsKey("ancient"))
+        assertTrue(local.rows.containsKey(SYNC_OWNER to "ancient"))
     }
 
     // ---------------- 真实抓包数据 ----------------
@@ -261,28 +288,31 @@ class MatchSyncTest {
         retentionMonths: Int = 6,
         // 单模式是刻意选的默认：分页刹车的断言只在"一个模式内部按时间倒序"这个前提下成立
         mapModes: List<String> = listOf("猎场"),
+        ownerOpenId: String = SYNC_OWNER,
     ): SyncResult = runBlocking {
-        MatchSyncer(remote, local, pageSize, maxPages, mapModes).sync(nowSec, retentionMonths)
+        MatchSyncer(remote, local, pageSize, maxPages, mapModes).sync(ownerOpenId, nowSec, retentionMonths)
     }
 
     private class FakeLocal : MatchLocalSource {
-        val rows = LinkedHashMap<String, MatchEntity>()
+        val rows = LinkedHashMap<Pair<String, String>, MatchEntity>()
         var lastCutoffSec: Long? = null
 
         fun seed(vararg roomIds: String) {
-            for (id in roomIds) rows[id] = fakeRecord(id).toEntity()
+            for (id in roomIds) rows[SYNC_OWNER to id] = fakeRecord(id).toEntity(ownerOpenId = SYNC_OWNER)
         }
 
-        override suspend fun knownStates(roomIds: List<String>): Map<String, Boolean> =
-            roomIds.mapNotNull { id -> rows[id]?.let { id to it.finished } }.toMap()
+        override suspend fun knownStates(ownerOpenId: String, roomIds: List<String>): Map<String, Boolean> =
+            roomIds.mapNotNull { id -> rows[ownerOpenId to id]?.let { id to it.finished } }.toMap()
 
         override suspend fun upsertAll(entities: List<MatchEntity>) {
-            entities.forEach { rows[it.roomId] = it }
+            entities.forEach { rows[it.ownerOpenId to it.roomId] = it }
         }
 
-        override suspend fun deleteOlderThan(cutoffSec: Long): Int {
+        override suspend fun deleteOlderThan(ownerOpenId: String, cutoffSec: Long): Int {
             lastCutoffSec = cutoffSec
-            val stale = rows.filter { it.value.eventTimeSec > 0 && it.value.eventTimeSec < cutoffSec }
+            val stale = rows.filter { (key, row) ->
+                key.first == ownerOpenId && row.eventTimeSec > 0 && row.eventTimeSec < cutoffSec
+            }
             stale.keys.forEach { rows.remove(it) }
             return stale.size
         }
